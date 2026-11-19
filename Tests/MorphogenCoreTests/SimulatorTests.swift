@@ -318,4 +318,20 @@ final class SimulatorTests: XCTestCase {
     let expected = 2 * Double.pi / Double(rolls.constants[2])
     XCTAssertEqual(wavelength, expected, accuracy: 0.2 * expected)
   }
+
+  func testCyclicCompetitionKeepsEverySpecies() throws {
+    // Rock-paper-scissors: each species beats the next, so none can win and
+    // all three survive in rotating spirals. Rendered by species, all three
+    // colours stay on screen.
+    let cyclic = Preset.all.first { $0.model == .mayLeonard }!
+    let sim = try makeSim(w: 256, h: 256, p: cyclic, s: 6)
+    sim.step(cyclic.steps)
+    let data = try sim.render(palette: "mono", style: .species).dataProvider!.data! as Data
+    var dominant = [0, 0, 0]
+    for i in stride(from: 0, to: data.count, by: 4) {
+      let rgb = [data[i], data[i + 1], data[i + 2]]
+      dominant[rgb.firstIndex(of: rgb.max()!)!] += 1
+    }
+    for count in dominant { XCTAssertGreaterThan(count, data.count / 4 / 10, "a species died out") }
+  }
 }

@@ -10,8 +10,10 @@ constant uint MODEL_GIERER_MEINHARDT = 4u;
 constant uint MODEL_LENGYEL_EPSTEIN = 5u;
 constant uint MODEL_THOMAS = 6u;
 constant uint MODEL_SWIFT_HOHENBERG = 7u;
+constant uint MODEL_MAY_LEONARD = 8u;
 
-// Every model keeps two chemicals per cell in an rg32Float texture. The y
+// Every model keeps its chemicals per cell in an rgba32Float texture (two of
+// them, or three for cyclic competition). The y
 // channel always holds the one that is displayed. Du and Dv are the diffusion
 // rates of the chemicals each kernel calls u and v; c0..c3 are the model's own
 // constants, documented on its kernel.

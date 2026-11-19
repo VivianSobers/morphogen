@@ -37,7 +37,7 @@ struct PartialStats {
 
 /// A reaction-diffusion simulation on the GPU.
 ///
-/// The (U, V) field lives in two rg32Float textures; each step reads one and
+/// The field lives in two rgba32Float textures; each step reads one and
 /// writes the other.
 public final class Simulator {
   public let width: Int
@@ -79,7 +79,7 @@ public final class Simulator {
     colorPipeline = try pipeline("colorize")
 
     let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-      pixelFormat: .rg32Float, width: width, height: height, mipmapped: false)
+      pixelFormat: .rgba32Float, width: width, height: height, mipmapped: false)
     descriptor.usage = [.shaderRead, .shaderWrite]
     descriptor.storageMode = .private
     fields = try (0..<2).map { _ in

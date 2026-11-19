@@ -6,6 +6,7 @@ constant uint STYLE_GLOSSY = 2u;
 constant uint STYLE_PHASE = 3u;
 constant uint STYLE_CONTOUR = 4u;
 constant uint STYLE_RELIEF = 5u;
+constant uint STYLE_SPECIES = 6u;
 
 constant float CONTOUR_LEVELS = 4.0f;
 
@@ -89,6 +90,8 @@ inline float soft_shadow(texture2d<float, access::read> field, float2 pos, float
 //           through every hue, one turn of the cycle per wavelength.
 //   contour: flat colour with isolines at four evenly spaced levels
 //   relief:  the pattern as terrain lit by a low sun, with soft shadows
+//   species: red, green and blue mixed by the three populations of a cyclic
+//            competition model (ignores the palette)
 // Shading happens in linear light; palettes are authored in sRGB.
 kernel void colorize(
     texture2d<float, access::read> field [[texture(0)]],
@@ -108,6 +111,16 @@ kernel void colorize(
     float range = max(params.vHigh - params.vLow, 1e-4f);
     float t = saturate((footprint_v(field, pos, scale, w, h) - params.vLow) / range);
     float3 albedo = sample_palette(params.paletteIndex, t);
+    if (params.style == STYLE_SPECIES) {
+        int2 cell = int2(round(pos));
+        uint2 wrapped = uint2((cell.x % int(w) + int(w)) % int(w), (cell.y % int(h) + int(h)) % int(h));
+        float3 n = field.read(wrapped).xyz;
+        float3 share = n / max(n.x + n.y + n.z, 1e-4f);
+        float3 colour = share.x * float3(0.90f, 0.25f, 0.25f) + share.y * float3(0.25f, 0.80f, 0.35f)
+                      + share.z * float3(0.25f, 0.40f, 0.95f);
+        out.write(float4(colour, 1.0f), gid);
+        return;
+    }
     if (params.style == STYLE_PHASE) {
         float partner = sample_partner(field, pos, w, h);
         float s = (partner - params.wLow) / max(params.wHigh - params.wLow, 1e-4f);

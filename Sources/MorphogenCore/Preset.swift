@@ -3,7 +3,7 @@ import Foundation
 /// The reaction-diffusion system a preset runs. Raw values match MODEL_* in 00_common.metal.
 public enum Model: UInt32, CaseIterable {
   case grayScott = 0, barkley = 1, brusselator = 2, schnakenberg = 3
-  case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6, swiftHohenberg = 7
+  case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6, swiftHohenberg = 7, mayLeonard = 8
 
   var kernel: String {
     switch self {
@@ -15,6 +15,7 @@ public enum Model: UInt32, CaseIterable {
     case .lengyelEpstein: return "lengyel_epstein_step"
     case .thomas: return "thomas_step"
     case .swiftHohenberg: return "swift_hohenberg_step"
+    case .mayLeonard: return "may_leonard_step"
     }
   }
 }
@@ -98,6 +99,8 @@ public struct Preset: Equatable {
            seedShape: .perturbed, steps: 30000, palette: "mono", summary: "Thomas substrate inhibition: holes in a sheet"),
     Preset(name: "benard", model: .swiftHohenberg, constants: [0.1, 1.0, 0.5], dt: 0.0015,
            seedShape: .perturbed, steps: 100000, palette: "ember", summary: "Swift-Hohenberg convection cells"),
+    Preset(name: "rps", model: .mayLeonard, constants: [1, 1], du: 2, dt: 0.1,
+           seedShape: .perturbed, steps: 20000, palette: "dusk", summary: "rock-paper-scissors species chasing in spirals"),
   ]
 
   public static func named(_ name: String) -> Preset? { all.first { $0.name == name } }
@@ -112,7 +115,7 @@ public enum Palette {
 
 /// How `Simulator.render` lights the pattern.
 public enum RenderStyle: UInt32, CaseIterable {
-  case flat = 0, emboss = 1, glossy = 2, phase = 3, contour = 4, relief = 5
+  case flat = 0, emboss = 1, glossy = 2, phase = 3, contour = 4, relief = 5, species = 6
 
   public var name: String { String(describing: self) }
 

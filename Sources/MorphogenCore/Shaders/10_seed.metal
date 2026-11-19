@@ -67,6 +67,16 @@ inline float2 steady_state(constant SeedParams &p) {
     }
 }
 
+// Cyclic competition starts at the point where all three species coexist,
+// a = b = c = mu / (3 mu + sigma), with +-50% noise so spirals nucleate quickly.
+inline float4 coexisting_species(constant SeedParams &p, uint2 gid) {
+    float s = p.c0 / (3.0f * p.c0 + p.c1);
+    float3 noise = float3(pcg_float(p.seed, gid.x, gid.y),
+                          pcg_float(p.seed + 7919u, gid.x, gid.y),
+                          pcg_float(p.seed + 104729u, gid.x, gid.y)) - 0.5f;
+    return float4(s * (1.0f + noise), 1.0f);
+}
+
 // Steady state with +-5% independent noise on both chemicals. A state of
 // zero (Swift-Hohenberg) gets absolute noise of +-0.05 instead.
 inline float4 perturbed_state(constant SeedParams &p, uint2 gid) {
@@ -120,7 +130,8 @@ kernel void seed_field(
     }
 
     if (params.shape == SEED_PERTURBED) {
-        outTex.write(perturbed_state(params, gid), gid);
+        outTex.write(params.model == MODEL_MAY_LEONARD ? coexisting_species(params, gid)
+                                                       : perturbed_state(params, gid), gid);
         return;
     }
     if (params.shape == SEED_BROKEN_WAVES) {
