@@ -1,6 +1,16 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Model ids, matching Model in Preset.swift.
+constant uint MODEL_GRAY_SCOTT = 0u;
+constant uint MODEL_BARKLEY = 1u;
+constant uint MODEL_BRUSSELATOR = 2u;
+constant uint MODEL_SCHNAKENBERG = 3u;
+
+// Every model keeps two chemicals per cell in an rg32Float texture. The y
+// channel always holds the one that is displayed. Du and Dv are the diffusion
+// rates of the chemicals each kernel calls u and v; c0..c3 are the model's own
+// constants, documented on its kernel.
 struct SimParams {
     float feed;
     float kill;
@@ -14,6 +24,10 @@ struct SimParams {
     float Dv;
     float flowAngle;     // radians
     float flowStrength;  // 0 = isotropic, < 1
+    float c0;
+    float c1;
+    float c2;
+    float c3;
 };
 
 struct SeedParams {
@@ -21,6 +35,11 @@ struct SeedParams {
     uint height;
     uint seed;
     uint shape;
+    uint model;
+    float c0;
+    float c1;
+    float c2;
+    float c3;
 };
 
 struct ColorParams {

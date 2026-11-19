@@ -15,10 +15,12 @@ struct SimParams {
   var width, height, isMapped: UInt32
   var dt, Du, Dv: Float
   var flowAngle, flowStrength: Float
+  var c0, c1, c2, c3: Float
 }
 
 struct SeedParams {
-  var width, height, seed, shape: UInt32
+  var width, height, seed, shape, model: UInt32
+  var c0, c1, c2, c3: Float
 }
 
 struct ColorParams {
@@ -67,7 +69,7 @@ public final class Simulator {
       return try device.makeComputePipelineState(function: function)
     }
     seedPipeline = try pipeline("seed_field")
-    stepPipeline = try pipeline(preset.flowAngle == nil ? "gray_scott_step" : "gray_scott_step_flow")
+    stepPipeline = try pipeline(preset.flowAngle == nil ? preset.model.kernel : "gray_scott_step_flow")
     statsPipeline = try pipeline("field_stats")
     colorPipeline = try pipeline("colorize")
 
@@ -83,15 +85,18 @@ public final class Simulator {
     let feed = feed ?? preset.feed
     let kill = kill ?? preset.kill
     let mapped = preset.feedEnd != nil && preset.killEnd != nil
+    let c = preset.constants + Array(repeating: 0, count: 4 - preset.constants.count)
     params = SimParams(
       feed: feed, kill: kill, feedEnd: preset.feedEnd ?? feed, killEnd: preset.killEnd ?? kill,
       width: UInt32(width), height: UInt32(height), isMapped: mapped ? 1 : 0,
-      dt: 1, Du: 1, Dv: 0.5,
+      dt: preset.dt, Du: preset.du, Dv: preset.dv,
       flowAngle: (preset.flowAngle ?? 0) * .pi / 180,
-      flowStrength: preset.flowAngle == nil ? 0 : 0.9)
+      flowStrength: preset.flowAngle == nil ? 0 : 0.9,
+      c0: c[0], c1: c[1], c2: c[2], c3: c[3])
 
-    var seedParams = SeedParams(width: UInt32(width), height: UInt32(height),
-                                seed: seed, shape: preset.seedShape.rawValue)
+    var seedParams = SeedParams(width: UInt32(width), height: UInt32(height), seed: seed,
+                                shape: preset.seedShape.rawValue, model: preset.model.rawValue,
+                                c0: c[0], c1: c[1], c2: c[2], c3: c[3])
     try run { encoder in
       encoder.setComputePipelineState(seedPipeline)
       encoder.setTexture(fields[0], index: 0)

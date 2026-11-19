@@ -39,9 +39,36 @@ final class SimulatorTests: XCTestCase {
       let sim = try makeSim(w: 256, h: 256, p: p, s: 42)
       sim.step(min(p.steps, 4000))
       let s = sim.stats()
-      XCTAssertGreaterThan(s.maxV - s.minV, 0.15, p.name)
-      XCTAssertGreaterThan(s.meanV, 0.01, p.name); XCTAssertLessThan(s.meanV, 0.6, p.name)
+      XCTAssertTrue(s.minV.isFinite && s.maxV.isFinite && s.meanV.isFinite, "\(p.name) blew up")
+      // Relative spread, since each model's displayed chemical has its own scale.
+      XCTAssertGreaterThan(s.maxV - s.minV, 0.15 * max(abs(s.maxV), 1e-3), "\(p.name) is uniform")
     }
+  }
+
+  func testEveryModelHasAPreset() {
+    for model in Model.allCases {
+      XCTAssertTrue(Preset.all.contains { $0.model == model }, "\(model) has no preset")
+    }
+  }
+
+  func testPerturbedSeedStartsAtSteadyState() throws {
+    // Brusselator's uniform state is u = A (displayed), v = B / A.
+    let brusselator = Preset.all.first { $0.model == .brusselator }!
+    let s = try makeSim(w: 128, h: 128, p: brusselator, s: 3).stats()
+    XCTAssertEqual(s.meanV, brusselator.constants[0], accuracy: 0.05 * brusselator.constants[0])
+    XCTAssertGreaterThan(s.maxV, s.minV)
+  }
+
+  func testSpiralsKeepTurning() throws {
+    // Turing patterns settle; excitable spirals never do.
+    let spiral = Preset.all.first { $0.model == .barkley }!
+    let sim = try makeSim(w: 256, h: 256, p: spiral, s: 9)
+    sim.step(3000)
+    let before = luminance(try sim.render(palette: "mono", style: .flat))
+    sim.step(300)
+    let after = luminance(try sim.render(palette: "mono", style: .flat))
+    let change = zip(before, after).map { abs($0 - $1) }.reduce(0, +) / Double(before.count)
+    XCTAssertGreaterThan(change, 20)
   }
 
   func testRenderSize() throws {

@@ -1,6 +1,69 @@
 #include <metal_stdlib>
 using namespace metal;
 
+constant uint SEED_PERTURBED = 4u;
+constant uint SEED_BROKEN_WAVES = 5u;
+
+// The uniform state a model would sit in forever without noise, as (x, y).
+// Turing patterns grow out of small perturbations around it.
+inline float2 steady_state(constant SeedParams &p) {
+    switch (p.model) {
+        case MODEL_BRUSSELATOR: {
+            // A = c0, B = c1: u = A, v = B / A.
+            return float2(p.c1 / p.c0, p.c0);
+        }
+        case MODEL_SCHNAKENBERG: {
+            // a = c0, b = c1: u = a + b, v = b / (a + b)^2.
+            float u = p.c0 + p.c1;
+            return float2(p.c1 / (u * u), u);
+        }
+        default:
+            return float2(1.0f, 0.0f);
+    }
+}
+
+// Steady state with +-5% independent noise on both chemicals.
+inline float4 perturbed_state(constant SeedParams &p, uint2 gid) {
+    float2 base = steady_state(p);
+    float nx = pcg_float(p.seed, gid.x, gid.y) - 0.5f;
+    float ny = pcg_float(p.seed + 7919u, gid.x, gid.y) - 0.5f;
+    return float4(base.x * (1.0f + 0.1f * nx), base.y * (1.0f + 0.1f * ny), 0.0f, 1.0f);
+}
+
+// For excitable media (stored as (v, u)): a handful of wavefront segments,
+// each excited (u = 1) on one side and refractory (v = 1) behind it. Every
+// segment has a free end, and a free end curls into a spiral.
+inline float4 broken_waves(constant SeedParams &p, uint2 gid) {
+    float2 size = float2(p.width, p.height);
+    float length = 0.3f * min(size.x, size.y);
+    uint count = 4u + pcg_hash(p.seed) % 4u;
+    float u = 0.0f;
+    float v = 0.0f;
+
+    for (uint i = 0u; i < count; ++i) {
+        float2 centre = float2(pcg_float(p.seed + i, 17u, 29u), pcg_float(p.seed + i, 31u, 43u)) * size;
+        float angle = 6.2831853f * pcg_float(p.seed + i, 53u, 67u);
+        float2 along = float2(cos(angle), sin(angle));
+        float2 across = float2(-along.y, along.x);
+
+        // Shortest offset on the torus.
+        float2 d = float2(gid) - centre;
+        d -= size * round(d / size);
+
+        float s = dot(d, along);
+        float t = dot(d, across);
+        if (t < 0.0f || t > length) {
+            continue;
+        }
+        if (s >= 0.0f && s < 6.0f) {
+            u = 1.0f;
+        } else if (s < 0.0f && s > -30.0f) {
+            v = 1.0f;
+        }
+    }
+    return float4(v, u, 0.0f, 1.0f);
+}
+
 kernel void seed_field(
     texture2d<float, access::write> outTex [[texture(0)]],
     constant SeedParams &params [[buffer(0)]],
@@ -10,6 +73,17 @@ kernel void seed_field(
         return;
     }
 
+    if (params.shape == SEED_PERTURBED) {
+        outTex.write(perturbed_state(params, gid), gid);
+        return;
+    }
+    if (params.shape == SEED_BROKEN_WAVES) {
+        outTex.write(broken_waves(params, gid), gid);
+        return;
+    }
+
+    // Gray-Scott shapes: U = 1 everywhere, V placed in spots, a square,
+    // rings or noisy blocks.
     float u = 1.0f;
     float v = 0.0f;
     float w = float(params.width);
