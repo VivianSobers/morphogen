@@ -5,7 +5,7 @@ import CoreGraphics
 func fail(_ msg: String, _ code: Int32) -> Never { fputs("morphogen: \(msg)\n", stderr); exit(code) }
 
 let a = CommandLine.arguments
-var (pName, palName, outPath, gifPath): (String?, String?, String?, String?)
+var (pName, palName, styleName, outPath, gifPath): (String?, String?, String?, String?, String?)
 var (sizeArg, wArg, hArg, stepsArg, framesArg, gifSzArg): (Int?, Int?, Int?, Int?, Int?, Int?)
 var (feedArg, killArg): (Float?, Float?)
 var seedArg: UInt32?
@@ -15,7 +15,7 @@ while i < a.count {
   let arg = a[i]
   switch arg {
   case "--help", "-h":
-    print("Usage: morphogen [--preset NAME] [--size N | --width W --height H] [--steps N] [--feed F] [--kill K] [--palette NAME] [--seed N] [--out FILE.png] [--gif FILE.gif] [--frames N] [--gif-size N] [--list] [--help]")
+    print("Usage: morphogen [--preset NAME] [--size N | --width W --height H] [--steps N] [--feed F] [--kill K] [--palette NAME] [--style flat|emboss|glossy] [--seed N] [--out FILE.png] [--gif FILE.gif] [--frames N] [--gif-size N] [--list] [--help]")
     exit(0)
   case "--list":
     for p in Preset.all {
@@ -23,6 +23,7 @@ while i < a.count {
       print("\(p.name.padding(toLength: 12, withPad: " ", startingAt: 0)) f=\(f) k=\(k)  \(p.summary)")
     }
     print("\npalettes: \(Palette.names.joined(separator: ", "))")
+    print("styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))")
     exit(0)
   case "--preset": i += 1; guard i < a.count else { fail("missing value", 64) }; pName = a[i]
   case "--size": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --size", 64) }; sizeArg = v
@@ -32,6 +33,7 @@ while i < a.count {
   case "--feed": i += 1; guard i < a.count, let v = Float(a[i]) else { fail("invalid --feed", 64) }; feedArg = v
   case "--kill": i += 1; guard i < a.count, let v = Float(a[i]) else { fail("invalid --kill", 64) }; killArg = v
   case "--palette": i += 1; guard i < a.count else { fail("missing value", 64) }; palName = a[i]
+  case "--style": i += 1; guard i < a.count else { fail("missing value", 64) }; styleName = a[i]
   case "--seed": i += 1; guard i < a.count, let v = UInt32(a[i]) else { fail("invalid --seed", 64) }; seedArg = v
   case "--out": i += 1; guard i < a.count else { fail("missing value", 64) }; outPath = a[i]
   case "--gif": i += 1; guard i < a.count else { fail("missing value", 64) }; gifPath = a[i]
@@ -49,6 +51,10 @@ guard let preset = Preset.named(pTarget) else {
 let pal = palName ?? preset.palette
 guard Palette.names.contains(pal) else {
   fail("unknown palette '\(pal)'. Valid palettes: \(Palette.names.joined(separator: ", "))", 64)
+}
+
+guard let style = RenderStyle.named(styleName ?? "emboss") else {
+  fail("unknown style '\(styleName!)'. Valid styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))", 64)
 }
 
 let w = wArg ?? sizeArg ?? 1024, h = hArg ?? sizeArg ?? 1024
@@ -70,7 +76,7 @@ guard (2...600).contains(frames) else { fail("frames must be in 2...600", 64) }
 let gifSize = gifSzArg ?? 512
 guard (16...4096).contains(gifSize) else { fail("gif-size must be in 16...4096", 64) }
 
-let banner = "preset=\(preset.name) size=\(w)x\(h) steps=\(steps) feed=\(feed) kill=\(kill) palette=\(pal) seed=\(seed)"
+let banner = "preset=\(preset.name) size=\(w)x\(h) steps=\(steps) feed=\(feed) kill=\(kill) palette=\(pal) style=\(style.name) seed=\(seed)"
 print(banner)
 
 let t0 = ProcessInfo.processInfo.systemUptime
@@ -81,7 +87,7 @@ do {
     var fList: [CGImage] = []
     for _ in 0..<frames {
       sim.step(chunk)
-      fList.append(try sim.render(palette: pal, outputWidth: gifSize, outputHeight: gifSize))
+      fList.append(try sim.render(palette: pal, style: style, outputWidth: gifSize, outputHeight: gifSize))
     }
     let rem = steps - (chunk * frames)
     if rem > 0 { sim.step(rem) }
@@ -89,7 +95,7 @@ do {
   } else {
     sim.step(steps)
   }
-  let img = try sim.render(palette: pal, outputWidth: w, outputHeight: h)
+  let img = try sim.render(palette: pal, style: style, outputWidth: w, outputHeight: h)
   try writePNG(img, to: URL(fileURLWithPath: out), description: banner)
   print("wrote \(out) (\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime - t0))s)")
 } catch let err as MorphogenError {
