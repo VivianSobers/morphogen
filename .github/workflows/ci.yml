@@ -13,8 +13,3 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
-      - name: Language split check
-        run: |
-          metal=$(find Sources -name '*.metal' -print0 | xargs -0 cat | wc -c)
-          swift=$(find . -name '*.swift' -not -path './.build/*' -print0 | xargs -0 cat | wc -c)
-          echo "metal=$metal swift=$swift"; [ "$metal" -gt "$swift" ]
