@@ -1,106 +1,125 @@
+import CoreGraphics
 import Foundation
 import MorphogenCore
-import CoreGraphics
 
-func fail(_ msg: String, _ code: Int32) -> Never { fputs("morphogen: \(msg)\n", stderr); exit(code) }
+let usage = """
+  Usage: morphogen [options]
 
-let a = CommandLine.arguments
-var (pName, palName, styleName, outPath, gifPath): (String?, String?, String?, String?, String?)
-var (sizeArg, wArg, hArg, stepsArg, framesArg, gifSzArg): (Int?, Int?, Int?, Int?, Int?, Int?)
-var (feedArg, killArg): (Float?, Float?)
-var seedArg: UInt32?
+    --preset NAME        pattern preset (default coral; see --list)
+    --size N             grid width and height (default 1024)
+    --width W --height H grid size, if not square
+    --steps N            simulation steps (default: the preset's)
+    --feed F --kill K    override the preset's feed and kill rates
+    --palette NAME       color ramp (default: the preset's)
+    --style NAME         flat, emboss or glossy (default emboss)
+    --seed N             random seed (default: random, printed)
+    --out FILE.png       output image (default <preset>.png)
+    --gif FILE.gif       also write an animation of the pattern growing
+    --frames N           GIF frames (default 120)
+    --gif-size N         GIF longer side in pixels (default 512)
+    --list               list presets, palettes and styles
+  """
 
-var i = 1
-while i < a.count {
-  let arg = a[i]
-  switch arg {
+func fail(_ message: String, _ code: Int32 = 64) -> Never {
+  FileHandle.standardError.write(Data("morphogen: \(message)\n".utf8))
+  exit(code)
+}
+
+// MARK: - Arguments
+
+var options: [String: String] = [:]
+var arguments = CommandLine.arguments.dropFirst()
+let valueOptions: Set = ["--preset", "--size", "--width", "--height", "--steps", "--feed", "--kill",
+                         "--palette", "--style", "--seed", "--out", "--gif", "--frames", "--gif-size"]
+
+while let argument = arguments.popFirst() {
+  switch argument {
   case "--help", "-h":
-    print("Usage: morphogen [--preset NAME] [--size N | --width W --height H] [--steps N] [--feed F] [--kill K] [--palette NAME] [--style flat|emboss|glossy] [--seed N] [--out FILE.png] [--gif FILE.gif] [--frames N] [--gif-size N] [--list] [--help]")
+    print(usage)
     exit(0)
   case "--list":
-    for p in Preset.all {
-      let f = String(format: "%.4f", p.feed), k = String(format: "%.4f", p.kill)
-      print("\(p.name.padding(toLength: 12, withPad: " ", startingAt: 0)) f=\(f) k=\(k)  \(p.summary)")
+    for preset in Preset.all {
+      let rates = String(format: "f=%.4f k=%.4f", preset.feed, preset.kill)
+      print("\(preset.name.padding(toLength: 12, withPad: " ", startingAt: 0)) \(rates)  \(preset.summary)")
     }
     print("\npalettes: \(Palette.names.joined(separator: ", "))")
     print("styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))")
     exit(0)
-  case "--preset": i += 1; guard i < a.count else { fail("missing value", 64) }; pName = a[i]
-  case "--size": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --size", 64) }; sizeArg = v
-  case "--width": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --width", 64) }; wArg = v
-  case "--height": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --height", 64) }; hArg = v
-  case "--steps": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --steps", 64) }; stepsArg = v
-  case "--feed": i += 1; guard i < a.count, let v = Float(a[i]) else { fail("invalid --feed", 64) }; feedArg = v
-  case "--kill": i += 1; guard i < a.count, let v = Float(a[i]) else { fail("invalid --kill", 64) }; killArg = v
-  case "--palette": i += 1; guard i < a.count else { fail("missing value", 64) }; palName = a[i]
-  case "--style": i += 1; guard i < a.count else { fail("missing value", 64) }; styleName = a[i]
-  case "--seed": i += 1; guard i < a.count, let v = UInt32(a[i]) else { fail("invalid --seed", 64) }; seedArg = v
-  case "--out": i += 1; guard i < a.count else { fail("missing value", 64) }; outPath = a[i]
-  case "--gif": i += 1; guard i < a.count else { fail("missing value", 64) }; gifPath = a[i]
-  case "--frames": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --frames", 64) }; framesArg = v
-  case "--gif-size": i += 1; guard i < a.count, let v = Int(a[i]) else { fail("invalid --gif-size", 64) }; gifSzArg = v
-  default: fail("unknown option '\(arg)'", 64)
+  case _ where valueOptions.contains(argument):
+    guard let value = arguments.popFirst() else { fail("\(argument) needs a value") }
+    options[argument] = value
+  default:
+    fail("unknown option '\(argument)'\n\(usage)")
   }
-  i += 1
 }
 
-let pTarget = pName ?? "coral"
-guard let preset = Preset.named(pTarget) else {
-  fail("unknown preset '\(pTarget)'. Valid presets: \(Preset.all.map(\.name).joined(separator: ", "))", 64)
-}
-let pal = palName ?? preset.palette
-guard Palette.names.contains(pal) else {
-  fail("unknown palette '\(pal)'. Valid palettes: \(Palette.names.joined(separator: ", "))", 64)
-}
-
-guard let style = RenderStyle.named(styleName ?? "emboss") else {
-  fail("unknown style '\(styleName!)'. Valid styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))", 64)
+/// Parses a numeric option, failing with a usage error if it is malformed or out of range.
+func number<T: LosslessStringConvertible & Comparable>(_ name: String, default fallback: T,
+                                                       in range: ClosedRange<T>) -> T {
+  guard let text = options[name] else { return fallback }
+  guard let value = T(text) else { fail("invalid \(name) '\(text)'") }
+  guard range.contains(value) else { fail("\(name) must be in \(range.lowerBound)...\(range.upperBound)") }
+  return value
 }
 
-let w = wArg ?? sizeArg ?? 1024, h = hArg ?? sizeArg ?? 1024
-guard (16...4096).contains(w), (16...4096).contains(h) else { fail("size must be in 16...4096 (got \(w)x\(h))", 64) }
+let presetName = options["--preset"] ?? "coral"
+guard let preset = Preset.named(presetName) else {
+  fail("unknown preset '\(presetName)'. Valid presets: \(Preset.all.map(\.name).joined(separator: ", "))")
+}
+let palette = options["--palette"] ?? preset.palette
+guard Palette.names.contains(palette) else {
+  fail("unknown palette '\(palette)'. Valid palettes: \(Palette.names.joined(separator: ", "))")
+}
+let styleName = options["--style"] ?? "emboss"
+guard let style = RenderStyle.named(styleName) else {
+  fail("unknown style '\(styleName)'. Valid styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))")
+}
 
-let steps = stepsArg ?? preset.steps
-guard steps >= 1 else { fail("steps must be >= 1", 64) }
+let size = number("--size", default: 1024, in: 16...4096)
+let width = number("--width", default: size, in: 16...4096)
+let height = number("--height", default: size, in: 16...4096)
+let steps = number("--steps", default: preset.steps, in: 1...1_000_000)
+let feed = number("--feed", default: preset.feed, in: 0...0.12)
+let kill = number("--kill", default: preset.kill, in: 0...0.12)
+let seed = number("--seed", default: UInt32.random(in: 1...UInt32.max), in: 0...UInt32.max)
+let frames = number("--frames", default: 120, in: 2...600)
+let gifSize = number("--gif-size", default: 512, in: 16...4096)
+let output = options["--out"] ?? "\(preset.name).png"
+let gifPath = options["--gif"]
+if gifPath != nil && frames > steps { fail("--frames (\(frames)) cannot exceed --steps (\(steps))") }
 
-let feed = feedArg ?? preset.feed
-guard (0...0.12).contains(feed) else { fail("feed must be in 0...0.12", 64) }
+// MARK: - Run
 
-let kill = killArg ?? preset.kill
-guard (0...0.12).contains(kill) else { fail("kill must be in 0...0.12", 64) }
-
-let seed = seedArg ?? UInt32.random(in: 1...UInt32.max)
-let out = outPath ?? "\(preset.name).png"
-let frames = framesArg ?? 120
-guard (2...600).contains(frames) else { fail("frames must be in 2...600", 64) }
-guard gifPath == nil || frames <= steps else { fail("frames (\(frames)) cannot exceed steps (\(steps))", 64) }
-let gifSize = gifSzArg ?? 512
-guard (16...4096).contains(gifSize) else { fail("gif-size must be in 16...4096", 64) }
-
-let banner = "preset=\(preset.name) size=\(w)x\(h) steps=\(steps) feed=\(feed) kill=\(kill) palette=\(pal) style=\(style.name) seed=\(seed)"
+let banner = "preset=\(preset.name) size=\(width)x\(height) steps=\(steps) feed=\(feed) kill=\(kill) "
+  + "palette=\(palette) style=\(style.name) seed=\(seed)"
 print(banner)
 
-let t0 = ProcessInfo.processInfo.systemUptime
+let start = Date()
 do {
-  let sim = try Simulator(width: w, height: h, preset: preset, seed: seed, feed: feed, kill: kill)
-  if let gp = gifPath {
+  let simulator = try Simulator(width: width, height: height, preset: preset, seed: seed, feed: feed, kill: kill)
+
+  if let gifPath {
     // gif-size is the longer side; the shorter one keeps the grid's aspect ratio.
-    let scale = Double(gifSize) / Double(max(w, h))
-    let (gifW, gifH) = (max(1, Int((Double(w) * scale).rounded())), max(1, Int((Double(h) * scale).rounded())))
+    let scale = Double(gifSize) / Double(max(width, height))
+    let gifWidth = max(1, Int((Double(width) * scale).rounded()))
+    let gifHeight = max(1, Int((Double(height) * scale).rounded()))
     var gifFrames: [CGImage] = []
     for chunk in frameSchedule(totalSteps: steps, frames: frames) {
-      sim.step(chunk)
-      gifFrames.append(try sim.render(palette: pal, style: style, outputWidth: gifW, outputHeight: gifH))
+      simulator.step(chunk)
+      gifFrames.append(try simulator.render(palette: palette, style: style,
+                                            outputWidth: gifWidth, outputHeight: gifHeight))
     }
-    try writeGIF(gifFrames, to: URL(fileURLWithPath: gp), frameDelay: 1.0 / 30.0)
+    try writeGIF(gifFrames, to: URL(fileURLWithPath: gifPath), frameDelay: 1.0 / 30.0)
   } else {
-    sim.step(steps)
+    simulator.step(steps)
   }
-  let img = try sim.render(palette: pal, style: style, outputWidth: w, outputHeight: h)
-  try writePNG(img, to: URL(fileURLWithPath: out), description: banner)
-  print("wrote \(out) (\(String(format: "%.1f", ProcessInfo.processInfo.systemUptime - t0))s)")
-} catch let err as MorphogenError {
-  fail(err.description, 1)
+
+  let image = try simulator.render(palette: palette, style: style,
+                                   outputWidth: width, outputHeight: height)
+  try writePNG(image, to: URL(fileURLWithPath: output), description: banner)
+  print("wrote \(output) (\(String(format: "%.1f", Date().timeIntervalSince(start)))s)")
+} catch let error as MorphogenError {
+  fail(error.description, 1)
 } catch {
   fail(error.localizedDescription, 1)
 }
