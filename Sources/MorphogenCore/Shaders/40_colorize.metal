@@ -1,75 +1,36 @@
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void colorize(
-    texture2d<float, access::read> inTex [[texture(0)]],
-    texture2d<float, access::write> outTex [[texture(1)]],
-    constant ColorParams &params [[buffer(0)]],
-    uint2 gid [[thread_position_in_grid]]
-) {
-    if (gid.x >= params.outWidth || gid.y >= params.outHeight) {
-        return;
-    }
+constant uint STYLE_FLAT = 0u;
+constant uint STYLE_GLOSSY = 2u;
 
-    float u = (float(gid.x) + 0.5f) / float(params.outWidth);
-    float v = (float(gid.y) + 0.5f) / float(params.outHeight);
+// Bilinear sample of the V channel at a fractional grid position, wrapping
+// around the torus like the simulation does.
+inline float sample_v(texture2d<float, access::read> field, float2 pos, uint w, uint h) {
+    float2 base = floor(pos);
+    float2 f = pos - base;
+    int x0 = int(base.x);
+    int y0 = int(base.y);
+    uint ax = uint((x0 % int(w) + int(w)) % int(w));
+    uint ay = uint((y0 % int(h) + int(h)) % int(h));
+    uint bx = (ax + 1u) % w;
+    uint by = (ay + 1u) % h;
 
-    float sx = u * float(params.width) - 0.5f;
-    float sy = v * float(params.height) - 0.5f;
-
-    int x0 = int(floor(sx));
-    int y0 = int(floor(sy));
-    float fx = sx - float(x0);
-    float fy = sy - float(y0);
-
-    uint w = params.width;
-    uint h = params.height;
-
-    uint tx0 = (uint((x0 % int(w)) + int(w))) % w;
-    uint tx1 = (tx0 + 1u) % w;
-    uint ty0 = (uint((y0 % int(h)) + int(h))) % h;
-    uint ty1 = (ty0 + 1u) % h;
-
-    float v00 = inTex.read(uint2(tx0, ty0)).y;
-    float v10 = inTex.read(uint2(tx1, ty0)).y;
-    float v01 = inTex.read(uint2(tx0, ty1)).y;
-    float v11 = inTex.read(uint2(tx1, ty1)).y;
-
-    float vVal = mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
-
-    uint txm = (tx0 == 0u) ? (w - 1u) : (tx0 - 1u);
-    uint txp = (tx1 + 1u == w) ? 0u : (tx1 + 1u);
-    uint tym = (ty0 == 0u) ? (h - 1u) : (ty0 - 1u);
-    uint typ = (ty1 + 1u == h) ? 0u : (ty1 + 1u);
-
-    float vx0 = inTex.read(uint2(txm, ty0)).y;
-    float vx1 = inTex.read(uint2(txp, ty0)).y;
-    float vy0 = inTex.read(uint2(tx0, tym)).y;
-    float vy1 = inTex.read(uint2(tx0, typ)).y;
-
-    float dx = (vx1 - vx0) * 0.5f;
-    float dy = (vy1 - vy0) * 0.5f;
-
-    float3 normal = compute_surface_normal(dx, dy, 3.8f);
-    float3 lightDir = normalize(float3(-0.707f, -0.707f, 1.25f));
-    float3 viewDir = float3(0.0f, 0.0f, 1.0f);
-
-    float diff = clamp(dot(normal, lightDir), 0.0f, 1.0f);
-    float spec = blinn_phong_specular(normal, lightDir, viewDir, 32.0f);
-    float fres = schlick_fresnel(max(dot(normal, viewDir), 0.0f), 0.04f);
-    float emboss = 0.72f + 0.42f * diff + 0.20f * spec * fres;
-
-    float4 baseCol = sample_palette(params.paletteIndex, vVal);
-    float3 shaded = baseCol.rgb * emboss;
-    float3 mapped = tonemap_aces(shaded);
-    float3 rgb = linear_to_srgb(mapped);
-
-    outTex.write(float4(clamp(rgb, 0.0f, 1.0f), 1.0f), gid);
+    float v00 = field.read(uint2(ax, ay)).y;
+    float v10 = field.read(uint2(bx, ay)).y;
+    float v01 = field.read(uint2(ax, by)).y;
+    float v11 = field.read(uint2(bx, by)).y;
+    return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
 }
 
-kernel void colorize_vibrant(
-    texture2d<float, access::read> inTex [[texture(0)]],
-    texture2d<float, access::write> outTex [[texture(1)]],
+// Maps V onto a palette and lights it as if V were a height field.
+//   flat:   palette color only
+//   emboss: diffuse light from the top left
+//   glossy: emboss plus Blinn-Phong highlights on the ridges
+// Shading happens in linear light; palettes are authored in sRGB.
+kernel void colorize(
+    texture2d<float, access::read> field [[texture(0)]],
+    texture2d<float, access::write> out [[texture(1)]],
     constant ColorParams &params [[buffer(0)]],
     uint2 gid [[thread_position_in_grid]]
 ) {
@@ -77,58 +38,35 @@ kernel void colorize_vibrant(
         return;
     }
 
-    float u = (float(gid.x) + 0.5f) / float(params.outWidth);
-    float v = (float(gid.y) + 0.5f) / float(params.outHeight);
-
-    float sx = u * float(params.width) - 0.5f;
-    float sy = v * float(params.height) - 0.5f;
-
-    int x0 = int(floor(sx));
-    int y0 = int(floor(sy));
-    float fx = sx - float(x0);
-    float fy = sy - float(y0);
-
     uint w = params.width;
     uint h = params.height;
+    float2 scale = float2(w, h) / float2(params.outWidth, params.outHeight);
+    float2 pos = (float2(gid) + 0.5f) * scale - 0.5f;
 
-    uint tx0 = (uint((x0 % int(w)) + int(w))) % w;
-    uint tx1 = (tx0 + 1u) % w;
-    uint ty0 = (uint((y0 % int(h)) + int(h))) % h;
-    uint ty1 = (ty0 + 1u) % h;
+    float range = max(params.vHigh - params.vLow, 1e-4f);
+    float t = saturate((sample_v(field, pos, w, h) - params.vLow) / range);
+    float3 albedo = sample_palette(params.paletteIndex, t);
 
-    float v00 = inTex.read(uint2(tx0, ty0)).y;
-    float v10 = inTex.read(uint2(tx1, ty0)).y;
-    float v01 = inTex.read(uint2(tx0, ty1)).y;
-    float v11 = inTex.read(uint2(tx1, ty1)).y;
+    if (params.style == STYLE_FLAT) {
+        out.write(float4(albedo, 1.0f), gid);
+        return;
+    }
 
-    float vVal = mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
+    // Slope of the normalized height field, central differences in grid cells.
+    float dx = (sample_v(field, pos + float2(1.0f, 0.0f), w, h) -
+                sample_v(field, pos - float2(1.0f, 0.0f), w, h)) * 0.5f / range;
+    float dy = (sample_v(field, pos + float2(0.0f, 1.0f), w, h) -
+                sample_v(field, pos - float2(0.0f, 1.0f), w, h)) * 0.5f / range;
 
-    uint txm = (tx0 == 0u) ? (w - 1u) : (tx0 - 1u);
-    uint txp = (tx1 + 1u == w) ? 0u : (tx1 + 1u);
-    uint tym = (ty0 == 0u) ? (h - 1u) : (ty0 - 1u);
-    uint typ = (ty1 + 1u == h) ? 0u : (ty1 + 1u);
+    float3 normal = compute_surface_normal(dx, dy, 2.5f);
+    float3 light = normalize(float3(-0.6f, -0.6f, 1.0f));
+    float3 view = float3(0.0f, 0.0f, 1.0f);
 
-    float vx0 = inTex.read(uint2(txm, ty0)).y;
-    float vx1 = inTex.read(uint2(txp, ty0)).y;
-    float vy0 = inTex.read(uint2(tx0, tym)).y;
-    float vy1 = inTex.read(uint2(tx0, typ)).y;
+    float diffuse = saturate(dot(normal, light));
+    float3 color = srgb_to_linear(albedo) * (0.35f + 0.8f * diffuse);
+    if (params.style == STYLE_GLOSSY) {
+        color += 0.5f * blinn_phong_specular(normal, light, view, 40.0f);
+    }
 
-    float dx = (vx1 - vx0) * 0.5f;
-    float dy = (vy1 - vy0) * 0.5f;
-
-    float3 normal = compute_surface_normal(dx, dy, 4.5f);
-    float3 lightDir = normalize(float3(-0.707f, -0.707f, 1.25f));
-    float3 viewDir = float3(0.0f, 0.0f, 1.0f);
-
-    float diff = clamp(dot(normal, lightDir), 0.0f, 1.0f);
-    float spec = blinn_phong_specular(normal, lightDir, viewDir, 48.0f);
-    float fres = schlick_fresnel(max(dot(normal, viewDir), 0.0f), 0.04f);
-    float emboss = 0.65f + 0.45f * diff + 0.35f * spec * fres;
-
-    float4 baseCol = sample_palette(params.paletteIndex, vVal);
-    float3 enhanced = adjust_contrast(adjust_saturation(baseCol.rgb * emboss, 1.15f), 1.08f);
-    float3 mapped = tonemap_aces(enhanced);
-    float3 rgb = linear_to_srgb(mapped);
-
-    outTex.write(float4(clamp(rgb, 0.0f, 1.0f), 1.0f), gid);
+    out.write(float4(linear_to_srgb(saturate(color)), 1.0f), gid);
 }

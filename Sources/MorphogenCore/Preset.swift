@@ -28,3 +28,11 @@ public enum Palette {
   public static let names = ["ocean", "magma", "coral", "ink", "mono"]
   public static func index(of n: String) -> UInt32? { names.firstIndex(of: n).map { UInt32($0) } }
 }
+
+/// How `Simulator.render` lights the pattern.
+public enum RenderStyle: UInt32, CaseIterable {
+  case flat = 0, emboss = 1, glossy = 2
+
+  public var name: String { String(describing: self) }
+  public static func named(_ name: String) -> RenderStyle? { allCases.first { $0.name == name } }
+}

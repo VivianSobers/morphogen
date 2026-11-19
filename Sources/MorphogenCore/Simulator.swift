@@ -13,7 +13,10 @@ struct SimParams {
   var dt, Du, Dv: Float
 }
 struct SeedParams { var width, height, seed, shape: UInt32 }
-struct ColorParams { var width, height, outWidth, outHeight, paletteIndex: UInt32 }
+struct ColorParams {
+  var width, height, outWidth, outHeight, paletteIndex, style: UInt32
+  var vLow, vHigh: Float
+}
 struct PartialStats { var minV, maxV, sumV: Float }
 
 public final class Simulator {
@@ -83,15 +86,17 @@ public final class Simulator {
     return FieldStats(minV: minV, maxV: maxV, meanV: Float(sumV / Double(width * height)))
   }
 
-  public func render(palette: String, outputWidth: Int? = nil, outputHeight: Int? = nil) throws -> CGImage {
+  public func render(palette: String, style: RenderStyle = .emboss, outputWidth: Int? = nil, outputHeight: Int? = nil) throws -> CGImage {
     guard let pIdx = Palette.index(of: palette) else { throw MorphogenError.unknownPalette(palette) }
+    let range = stats()
     let (outW, outH) = (outputWidth ?? width, outputHeight ?? height)
     let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: outW, height: outH, mipmapped: false)
     desc.usage = [.shaderWrite]; desc.storageMode = .shared
     guard let outTex = dev.makeTexture(descriptor: desc), let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { throw MorphogenError.noDevice }
 
     enc.setComputePipelineState(cPipe); enc.setTexture((cur == 0) ? texA : texB, index: 0); enc.setTexture(outTex, index: 1)
-    var cp = ColorParams(width: UInt32(width), height: UInt32(height), outWidth: UInt32(outW), outHeight: UInt32(outH), paletteIndex: pIdx)
+    var cp = ColorParams(width: UInt32(width), height: UInt32(height), outWidth: UInt32(outW), outHeight: UInt32(outH),
+                         paletteIndex: pIdx, style: style.rawValue, vLow: range.minV, vHigh: range.maxV)
     enc.setBytes(&cp, length: MemoryLayout<ColorParams>.stride, index: 0)
     enc.dispatchThreads(MTLSize(width: outW, height: outH, depth: 1), threadsPerThreadgroup: MTLSize(width: min(16, outW), height: min(16, outH), depth: 1))
     enc.endEncoding(); cb.commit(); cb.waitUntilCompleted()

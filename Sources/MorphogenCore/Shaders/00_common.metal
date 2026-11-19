@@ -40,6 +40,9 @@ struct ColorParams {
     uint outWidth;
     uint outHeight;
     uint paletteIndex;
+    uint style;
+    float vLow;
+    float vHigh;
 };
 
 struct PartialStats {
@@ -232,8 +235,8 @@ constant float3 monoStops[5] = {
     float3(1.00f, 1.00f, 1.00f)
 };
 
-inline float4 sample_palette(uint palette, float v) {
-    float t = clamp(v, 0.0f, 1.0f);
+// Five-stop sRGB ramp, t in [0, 1].
+inline float3 sample_palette(uint palette, float t) {
     constant float3 *stops;
     switch (palette) {
         case 0: stops = oceanStops; break;
@@ -243,9 +246,7 @@ inline float4 sample_palette(uint palette, float v) {
         default: stops = monoStops; break;
     }
 
-    float scaled = t * 4.0f;
+    float scaled = saturate(t) * 4.0f;
     uint idx = min(uint(scaled), 3u);
-    float frac = scaled - float(idx);
-    float3 col = mix(stops[idx], stops[idx + 1u], frac);
-    return float4(col, 1.0f);
+    return mix(stops[idx], stops[idx + 1u], scaled - float(idx));
 }

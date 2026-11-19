@@ -122,4 +122,26 @@ final class SimulatorTests: XCTestCase {
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { XCTFail(); return }
     XCTAssertEqual(CGImageSourceGetCount(src), 3)
   }
+
+  private func luminance(_ img: CGImage) -> [Double] {
+    let data = img.dataProvider!.data! as Data
+    return stride(from: 0, to: data.count, by: 4).map {
+      0.299 * Double(data[$0]) + 0.587 * Double(data[$0 + 1]) + 0.114 * Double(data[$0 + 2])
+    }
+  }
+
+  func testFlatRenderSpansWholePalette() throws {
+    let sim = try makeSim()
+    sim.step(1500)
+    let lum = luminance(try sim.render(palette: "mono", style: .flat))
+    XCTAssertLessThan(lum.min()!, 20)
+    XCTAssertGreaterThan(lum.max()!, 235)
+  }
+
+  func testStylesDiffer() throws {
+    let sim = try makeSim()
+    sim.step(1500)
+    let images = try RenderStyle.allCases.map { try sim.render(palette: "coral", style: $0).dataProvider!.data! as Data }
+    XCTAssertEqual(Set(images).count, RenderStyle.allCases.count)
+  }
 }
