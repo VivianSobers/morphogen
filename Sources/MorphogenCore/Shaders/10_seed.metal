@@ -17,11 +17,11 @@ kernel void seed_field(
     float minDim = min(w, h);
 
     if (params.shape == 0u) {
-        uint numSpots = 12u + (pcg_hash(params.seed) % 11u);
+        uint numSpots = 12u + (pcg_hash(params.seed) % 9u);
         for (uint i = 0u; i < numSpots; ++i) {
             float sx = pcg_float(params.seed + i * 29u, 101u, 307u) * w;
             float sy = pcg_float(params.seed + i * 31u, 409u, 521u) * h;
-            float radFrac = 0.035f + 0.025f * pcg_float(params.seed + i * 37u, 613u, 727u);
+            float radFrac = 0.045f + 0.035f * pcg_float(params.seed + i * 37u, 613u, 727u);
             float r = radFrac * minDim;
 
             float dx = abs(float(gid.x) - sx);
@@ -53,10 +53,13 @@ kernel void seed_field(
             v = 0.5f;
         }
     } else {
-        float n = pcg_float(params.seed, gid.x, gid.y);
-        if (n > 0.82f) {
+        uint blockSize = max(4u, uint(minDim * 0.02f));
+        uint bx = gid.x / blockSize;
+        uint by = gid.y / blockSize;
+        float n = pcg_float(params.seed, bx, by);
+        if (n > 0.60f) {
             u = 0.5f;
-            v = 0.25f + 0.25f * n;
+            v = 0.35f + 0.15f * pcg_float(params.seed + 13u, gid.x, gid.y);
         }
     }
 
