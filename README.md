@@ -1,128 +1,98 @@
 # morphogen
 
-[![ci](https://github.com/VivianSobers/morphogen/actions/workflows/ci.yml/badge.svg)](https://github.com/VivianSobers/morphogen/actions/workflows/ci.yml)
+Reaction-diffusion on the GPU. Ten models of how chemistry and ecology make spots, stripes and spirals, simulated in Metal compute shaders and written out as PNGs and GIFs.
 
-GPU Gray-Scott reaction-diffusion simulator and renderer written in Metal compute shaders.
-
-![Growth](docs/growth.gif)
+![Barkley spiral waves forming from broken wavefronts](docs/spirals.gif)
 
 ## Gallery
 
-| Coral | Mitosis | Zebra |
-| :---: | :---: | :---: |
-| ![Coral](docs/gallery/coral.png) | ![Mitosis](docs/gallery/mitosis.png) | ![Zebra](docs/gallery/zebra.png) |
-| **Fingerprint** | **Worms** | **Bubbles** |
-| ![Fingerprint](docs/gallery/fingerprint.png) | ![Worms](docs/gallery/worms.png) | ![Bubbles](docs/gallery/bubbles.png) |
-| **Atlas** | | |
-| ![Atlas](docs/gallery/atlas.png) | | |
+Every image below is one command, `morphogen --preset NAME --seed 42`.
 
-## How It Works
+| | | |
+|---|---|---|
+| ![coral](docs/gallery/coral.png)<br>**coral** · Gray-Scott | ![mitosis](docs/gallery/mitosis.png)<br>**mitosis** · Gray-Scott | ![zebra](docs/gallery/zebra.png)<br>**zebra** · Gray-Scott, directional diffusion |
+| ![fingerprint](docs/gallery/fingerprint.png)<br>**fingerprint** · Gray-Scott | ![worms](docs/gallery/worms.png)<br>**worms** · Gray-Scott | ![bubbles](docs/gallery/bubbles.png)<br>**bubbles** · Gray-Scott |
+| ![atlas](docs/gallery/atlas.png)<br>**atlas** · Gray-Scott parameter map | ![spirals](docs/gallery/spirals.png)<br>**spirals** · Barkley | ![targets](docs/gallery/targets.png)<br>**targets** · Barkley with pacemakers |
+| ![dunes](docs/gallery/dunes.png)<br>**dunes** · Brusselator | ![leopard](docs/gallery/leopard.png)<br>**leopard** · Schnakenberg | ![maze](docs/gallery/maze.png)<br>**maze** · Gierer-Meinhardt |
+| ![cima](docs/gallery/cima.png)<br>**cima** · Lengyel-Epstein | ![honeycomb](docs/gallery/honeycomb.png)<br>**honeycomb** · Thomas | ![benard](docs/gallery/benard.png)<br>**benard** · Swift-Hohenberg |
+| ![rps](docs/gallery/rps.png)<br>**rps** · May-Leonard | ![predators](docs/gallery/predators.png)<br>**predators** · Rosenzweig-MacArthur | |
 
-The Gray-Scott model simulates the non-linear interaction and diffusion of two chemical species, $U$ and $V$, governed by coupled reaction-diffusion partial differential equations:
+## The models
 
-$$\frac{\partial u}{\partial t} = D_u \nabla^2 u - u v^2 + f (1 - u)$$
+Each cell holds the amounts of two chemicals (three for rock-paper-scissors). Every step, each cell reacts with itself and diffuses into its neighbours. The models differ only in the reaction terms.
 
-$$\frac{\partial v}{\partial t} = D_v \nabla^2 v + u v^2 - (f + k) v$$
+| Model | What it describes | Presets |
+|---|---|---|
+| Gray-Scott | autocatalysis fed from a reservoir | coral, mitosis, zebra, fingerprint, worms, bubbles, atlas |
+| Barkley | excitable media such as heart tissue | spirals, targets |
+| Brusselator | a model autocatalytic reaction (Prigogine and Lefever) | dunes |
+| Schnakenberg | the simplest reaction with Turing spots | leopard |
+| Gierer-Meinhardt | activator and inhibitor, with saturation | maze |
+| Lengyel-Epstein | the CIMA reaction, the first Turing pattern seen in a lab | cima |
+| Thomas | an enzyme slowed down by its own substrate | honeycomb |
+| Swift-Hohenberg | convection cells in a heated fluid | benard |
+| May-Leonard | three species in a rock-paper-scissors cycle | rps |
+| Rosenzweig-MacArthur | prey and predators with a saturating appetite | predators |
 
-Here, $D_u$ and $D_v$ are diffusion coefficients ($D_u = 0.2097$, $D_v = 0.1050$), $f$ is the dimensionless feed rate replenishment of chemical $U$, and $k$ is the dimensionless kill rate conversion of chemical $V$. The non-linear reaction term $u v^2$ converts one unit of $U$ into $V$ catalyzed by two units of $V$.
-
-Diffusion across the 2D spatial grid is discretized using an isotropic 9-point Laplacian convolution stencil:
+Gray-Scott, for example, is
 
 ```
-[ 0.05  0.20  0.05 ]
-[ 0.20 -1.00  0.20 ]
-[ 0.05  0.20  0.05 ]
+U' = U + (Du ∇²U − U·V² + f·(1 − U))·dt
+V' = V + (Dv ∇²V + U·V² − (k + f)·V)·dt
 ```
 
-Boundary conditions are toroidal (periodic periodic boundary wrapping) computed with modulo index arithmetic.
+with the 9-point Laplacian (centre −1, edges 0.2, corners 0.05) on a grid that wraps around at the edges. The equations for every model are written out above its kernel in `Sources/MorphogenCore/Shaders/`, along with what each constant does.
 
-### Kernel Pipeline
+## How it works
 
-The simulation runs entirely on the GPU via Apple Metal compute shaders:
-1. **Seeding (`seed_kernel`)**: Initializes the concentration state on a 2-channel 32-bit floating point texture (`RG32Float`). Background concentration starts at $u = 1.0, v = 0.0$. Organic seed disturbances (circular drops and multi-octave gradient noise) are placed deterministically using a PCG pseudo-random generator keyed by the user seed.
-2. **Ping-Pong Time Stepping (`simulate_kernel`)**: Integrates forward in time using two alternating `RG32Float` textures across double-buffered compute dispatches. Multiple simulation steps are batched per command buffer submission for maximum GPU occupancy.
-3. **Reduction (`stats_kernel`)**: Evaluates global minimum, maximum, sum, and variance across the concentration field using parallel threadgroup hierarchical shared-memory reductions.
-4. **Colorize & Lighting (`colorize_kernel`)**: Renders the concentration field into an 8-bit RGBA texture. It computes central-difference spatial surface normals from chemical $V$ to perform Blinn-Phong specular highlighting, diffuse directional shading, smooth piecewise-cubic multi-stop palette mapping, ACES tone reproduction, and transfer to sRGB.
+The field lives in two `rgba32Float` textures. Each step reads one and writes the other, so a run of 10,000 steps is 10,000 dispatches in one command buffer. The pipeline is:
 
-## Installation & Build
+1. `seed_field` places the starting state: Gray-Scott spots or noise, broken wavefronts for spirals, pacemaker discs, or a model's uniform steady state plus noise. Where a steady state has no closed form (Gierer-Meinhardt, Thomas), the shader solves for it with Newton's method.
+2. One step kernel per model advances the field. Zebra uses an anisotropic diffusion tensor with a sign-aware cross-derivative stencil, so its stripes follow a chosen angle without the grid falling into a checkerboard. Swift-Hohenberg needs the Laplacian of the Laplacian, a 13-point stencil.
+3. `field_stats` and `fold_stats` compute the range of both chemicals in two tree reductions on the GPU, so colours always span the whole palette.
+4. `colorize` box-filters the field when the image is smaller than the grid, maps it onto a palette, and lights it as a height field in linear light.
 
-Build the optimized release binary with Swift Package Manager:
+## Build and run
+
+Needs macOS 13 or later and Xcode's Swift toolchain. There are no dependencies.
 
 ```bash
 swift build -c release
+.build/release/morphogen --preset spirals --size 768 --out spirals.png
 ```
-
-The compiled binary will be placed at `.build/release/morphogen`.
-
-## Usage
-
-### Single Still Image
 
 ```bash
-swift run morphogen --preset coral --palette ocean --size 768 --steps 8000 -o out.png
+.build/release/morphogen --preset rps --gif rps.gif --frames 90 --gif-size 384
 ```
-
-### Animated GIF
 
 ```bash
-swift run morphogen --preset mitosis --palette neon --size 512 --frames 120 --step-stride 50 --gif-size 384 -o growth.gif
+.build/release/morphogen --list
 ```
 
-### Verbose Mode & Diagnostics
+| Option | Meaning |
+|---|---|
+| `--preset NAME` | one of the 17 presets (default `coral`) |
+| `--size N`, `--width W --height H` | grid size (default 1024) |
+| `--steps N` | simulation steps (default: the preset's) |
+| `--feed F --kill K` | Gray-Scott feed and kill rates |
+| `--palette NAME` | `ocean`, `magma`, `coral`, `ink`, `mono`, `ember`, `sage`, `dusk`, `aurora` |
+| `--style NAME` | `flat`, `emboss`, `glossy`, `phase`, `contour`, `relief`, `species` |
+| `--zoom N` | upsample the PNG to show fine patterns larger |
+| `--seed N` | random seed; the same seed gives byte-identical output |
+| `--gif FILE` | also write an animation of the pattern forming |
+
+`phase` colours each cell by where it is in the cycle between its two chemicals, so spiral arms sweep through every hue. `relief` treats the pattern as terrain and casts soft shadows by marching rays toward a low sun. `species` shows the three populations of `rps` as red, green and blue.
+
+Every run prints its parameters and seed, and writes the same line into the PNG's description field, so any image can be reproduced.
+
+## Tests
 
 ```bash
-swift run morphogen --preset zebra --steps 4000 --verbose
+swift test
 ```
 
-### Options
-
-- `--preset <name>`: Preset configuration (`coral`, `mitosis`, `zebra`, `fingerprint`, `worms`, `bubbles`, `atlas`). Default: `coral`.
-- `--palette <name>`: Color palette (`viridis`, `magma`, `inferno`, `plasma`, `ocean`, `neon`, `mono`). Default: preset default.
-- `--size <int>`: Simulation grid resolution in pixels ($N \times N$). Default: `512`.
-- `--steps <int>`: Total simulation steps to execute. Default: `8000`.
-- `--seed <int>`: Random seed for procedural perturbation. Default: `42`.
-- `--feed <float>`: Override feed rate $f$.
-- `--kill <float>`: Override kill rate $k$.
-- `--frames <int>`: Number of animation frames to output (renders GIF when specified).
-- `--step-stride <int>`: Simulation steps between consecutive animation frames. Default: `50`.
-- `--gif-size <int>`: Frame resolution for GIF rendering. Default: `--size`.
-- `-o, --output <path>`: Destination path (`.png` or `.gif`). Default: `output.png`.
-- `--verbose`: Print per-phase timing, kernel statistics, and throughput.
-
-## Presets
-
-| Preset | Feed ($f$) | Kill ($k$) | Default Steps | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `coral` | 0.0545 | 0.0620 | 8000 | Branching labyrinthine dendritic coral reef growth |
-| `mitosis` | 0.0360 | 0.0630 | 9000 | Self-replicating dividing circular biological cells |
-| `zebra` | 0.0240 | 0.0500 | 7000 | Interlocking striped morphogenesis skin patterns |
-| `fingerprint` | 0.0300 | 0.0560 | 8000 | Coaligned parallel ridge and valley contours |
-| `worms` | 0.0580 | 0.0650 | 8000 | Slender writhing vermicular segmented filaments |
-| `bubbles` | 0.0180 | 0.0510 | 7000 | Solitary oscillating localized spherical vesicles |
-| `atlas` | 0.0250 | 0.0600 | 8000 | Organic topographic islands and continental voids |
-
-## Palettes
-
-- `viridis`: Perceptually uniform progressive blue-green-yellow colormap.
-- `magma`: Deep velvet black to radiant solar white and orange.
-- `inferno`: Dark obsidian purple to intense incandescent yellow.
-- `plasma`: Saturated electric violet to vibrant red-orange.
-- `ocean`: Deep midnight abyss to aquatic azure and coastal teal.
-- `neon`: Cyberpunk ultraviolet, hot magenta, and electric cyan.
-- `mono`: Minimalist scientific grayscale luminance mapping.
-
-## Determinism
-
-The simulation is fully bit-exact and deterministic across runs for any given combination of seed, resolution, and step count. The initial chemical perturbations are synthesized entirely on the GPU using a 32-bit PCG pseudo-random generator with fixed floating-point math, free from host-platform nondeterminism.
-
-## Running Tests
-
-Execute the XCTest suite:
-
-```bash
-swift test --disable-sandbox
-```
+31 tests run on the GPU, and they test behaviour: every preset forms a pattern and stays finite, stripes follow the flow angle, Swift-Hohenberg picks the wavelength its operator predicts, spirals and predator-prey waves never settle, all three rock-paper-scissors species survive, and a downscaled image matches a box-filtered full-size one. Without a Metal device (some CI machines), the GPU tests are skipped instead of failing.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
