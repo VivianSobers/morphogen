@@ -6,15 +6,11 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "MorphogenCore", targets: ["MorphogenCore"]),
+        .executable(name: "morphogen", targets: ["morphogen"])
     ],
     targets: [
-        .target(
-            name: "MorphogenCore",
-            resources: [.copy("Shaders")]
-        ),
-        .testTarget(
-            name: "MorphogenCoreTests",
-            dependencies: ["MorphogenCore"]
-        ),
+        .target(name: "MorphogenCore", resources: [.copy("Shaders")]),
+        .executableTarget(name: "morphogen", dependencies: ["MorphogenCore"]),
+        .testTarget(name: "MorphogenCoreTests", dependencies: ["MorphogenCore"])
     ]
 )
