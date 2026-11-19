@@ -269,4 +269,29 @@ final class SimulatorTests: XCTestCase {
     let pixels = data.count / 4
     for count in dominant { XCTAssertGreaterThan(count, pixels / 10, "phase colors should span red, green and blue") }
   }
+
+  func testReliefCastsShadows() throws {
+    let sim = try makeSim()
+    sim.step(1500)
+    let emboss = luminance(try sim.render(palette: "ink", style: .emboss))
+    let relief = luminance(try sim.render(palette: "ink", style: .relief))
+    let shadowed = zip(emboss, relief).filter { $0 > 60 && $1 < 0.6 * $0 }.count
+    XCTAssertGreaterThan(shadowed, emboss.count / 20, "relief should shade the lee side of ridges")
+  }
+
+  func testContourDrawsLines() throws {
+    let sim = try makeSim()
+    sim.step(1500)
+    let flat = try sim.render(palette: "mono", style: .flat).dataProvider!.data! as Data
+    let contour = try sim.render(palette: "mono", style: .contour).dataProvider!.data! as Data
+    let changed = stride(from: 0, to: flat.count, by: 4).filter { flat[$0] != contour[$0] }.count
+    XCTAssertGreaterThan(changed, flat.count / 4 / 20, "contour lines should cover part of the image")
+    XCTAssertLessThan(changed, flat.count / 4 / 2, "but leave most of it as the flat colour")
+  }
+
+  func testEveryPaletteRenders() throws {
+    let sim = try makeSim(w: 32, h: 32)
+    let images = try Palette.names.map { try sim.render(palette: $0, style: .flat).dataProvider!.data! as Data }
+    XCTAssertEqual(Set(images).count, Palette.names.count)
+  }
 }

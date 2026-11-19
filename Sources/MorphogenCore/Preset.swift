@@ -102,14 +102,14 @@ public struct Preset: Equatable {
 
 public enum Palette {
   /// Order matches the palette switch in sample_palette.
-  public static let names = ["ocean", "magma", "coral", "ink", "mono"]
+  public static let names = ["ocean", "magma", "coral", "ink", "mono", "ember", "sage", "dusk", "aurora"]
 
   public static func index(of name: String) -> UInt32? { names.firstIndex(of: name).map(UInt32.init) }
 }
 
 /// How `Simulator.render` lights the pattern.
 public enum RenderStyle: UInt32, CaseIterable {
-  case flat = 0, emboss = 1, glossy = 2, phase = 3
+  case flat = 0, emboss = 1, glossy = 2, phase = 3, contour = 4, relief = 5
 
   public var name: String { String(describing: self) }
 

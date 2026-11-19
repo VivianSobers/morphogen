@@ -166,6 +166,38 @@ constant float3 monoStops[5] = {
     float3(1.00f, 1.00f, 1.00f)
 };
 
+constant float3 emberStops[5] = {
+    float3(0.05f, 0.02f, 0.02f),
+    float3(0.36f, 0.06f, 0.04f),
+    float3(0.78f, 0.24f, 0.05f),
+    float3(0.98f, 0.62f, 0.18f),
+    float3(1.00f, 0.95f, 0.72f)
+};
+
+constant float3 sageStops[5] = {
+    float3(0.10f, 0.13f, 0.11f),
+    float3(0.27f, 0.36f, 0.30f),
+    float3(0.49f, 0.60f, 0.49f),
+    float3(0.74f, 0.80f, 0.68f),
+    float3(0.95f, 0.95f, 0.88f)
+};
+
+constant float3 duskStops[5] = {
+    float3(0.07f, 0.06f, 0.18f),
+    float3(0.29f, 0.17f, 0.42f),
+    float3(0.62f, 0.30f, 0.50f),
+    float3(0.93f, 0.53f, 0.45f),
+    float3(0.99f, 0.86f, 0.62f)
+};
+
+constant float3 auroraStops[5] = {
+    float3(0.02f, 0.04f, 0.10f),
+    float3(0.05f, 0.30f, 0.38f),
+    float3(0.18f, 0.72f, 0.55f),
+    float3(0.62f, 0.93f, 0.55f),
+    float3(0.93f, 0.99f, 0.86f)
+};
+
 // Hue in [0, 1) at full saturation and value, in sRGB.
 inline float3 hue_to_rgb(float hue) {
     float3 k = fract(hue + float3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f;
@@ -180,7 +212,11 @@ inline float3 sample_palette(uint palette, float t) {
         case 1: stops = magmaStops; break;
         case 2: stops = coralStops; break;
         case 3: stops = inkStops; break;
-        default: stops = monoStops; break;
+        case 4: stops = monoStops; break;
+        case 5: stops = emberStops; break;
+        case 6: stops = sageStops; break;
+        case 7: stops = duskStops; break;
+        default: stops = auroraStops; break;
     }
 
     float scaled = saturate(t) * 4.0f;

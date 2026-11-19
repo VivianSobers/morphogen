@@ -4,6 +4,10 @@ using namespace metal;
 constant uint STYLE_FLAT = 0u;
 constant uint STYLE_GLOSSY = 2u;
 constant uint STYLE_PHASE = 3u;
+constant uint STYLE_CONTOUR = 4u;
+constant uint STYLE_RELIEF = 5u;
+
+constant float CONTOUR_LEVELS = 4.0f;
 
 // Bilinear sample of the V channel at a fractional grid position, wrapping
 // around the torus like the simulation does.
@@ -46,6 +50,36 @@ inline float footprint_v(texture2d<float, access::read> field, float2 centre, fl
     return sum / float(taps.x * taps.y);
 }
 
+// Normalized height (0..1) of the filtered field at a grid position.
+inline float height_at(texture2d<float, access::read> field, float2 pos, float2 scale,
+                       constant ColorParams &params) {
+    float range = max(params.vHigh - params.vLow, 1e-4f);
+    return saturate((footprint_v(field, pos, scale, params.width, params.height) - params.vLow) / range);
+}
+
+// True where a contour level falls between this pixel and its right or lower
+// neighbour, so each isoline is about one pixel wide at any zoom.
+inline bool on_contour(float t, float tRight, float tDown) {
+    float level = floor(t * CONTOUR_LEVELS);
+    return level != floor(tRight * CONTOUR_LEVELS) || level != floor(tDown * CONTOUR_LEVELS);
+}
+
+// Fraction of light reaching a point of the height field, by marching toward
+// the sun and keeping the closest miss: a ridge that nearly blocks the ray
+// gives a soft penumbra, one that blocks it gives full shadow.
+inline float soft_shadow(texture2d<float, access::read> field, float2 pos, float2 scale,
+                         constant ColorParams &params, float2 sunDir, float sunSlope, float relief) {
+    float start = relief * height_at(field, pos, scale, params);
+    float light = 1.0f;
+    for (int i = 1; i <= 24; ++i) {
+        float dist = float(i) * 1.5f;
+        float ground = relief * height_at(field, pos + sunDir * dist * scale, scale, params);
+        float ray = start + sunSlope * dist;
+        light = min(light, saturate(0.5f + 4.0f * (ray - ground) / dist));
+    }
+    return light;
+}
+
 // Maps V onto a palette and lights it as if V were a height field.
 //   flat:   palette color only
 //   emboss: diffuse light from the top left
@@ -53,6 +87,8 @@ inline float footprint_v(texture2d<float, access::read> field, float2 centre, fl
 //   phase:  emboss, coloured by where each cell is in the cycle between the
 //           two chemicals instead of by a palette. A spiral's arms sweep
 //           through every hue, one turn of the cycle per wavelength.
+//   contour: flat colour with isolines at four evenly spaced levels
+//   relief:  the pattern as terrain lit by a low sun, with soft shadows
 // Shading happens in linear light; palettes are authored in sRGB.
 kernel void colorize(
     texture2d<float, access::read> field [[texture(0)]],
@@ -79,7 +115,12 @@ kernel void colorize(
         albedo = mix(float3(1.0f), hue_to_rgb(angle / 6.2831853f + 0.5f), 0.85f);
     }
 
-    if (params.style == STYLE_FLAT) {
+    if (params.style == STYLE_FLAT || params.style == STYLE_CONTOUR) {
+        if (params.style == STYLE_CONTOUR &&
+            on_contour(t, height_at(field, pos + float2(scale.x, 0.0f), scale, params),
+                          height_at(field, pos + float2(0.0f, scale.y), scale, params))) {
+            albedo *= 0.35f;
+        }
         out.write(float4(albedo, 1.0f), gid);
         return;
     }
@@ -98,6 +139,12 @@ kernel void colorize(
 
     float diffuse = saturate(dot(normal, light));
     float3 color = srgb_to_linear(albedo) * (0.35f + 0.8f * diffuse);
+    if (params.style == STYLE_RELIEF) {
+        // A low sun from the top left over terrain up to 6 cells tall.
+        float2 sunDir = normalize(float2(-1.0f, -1.0f));
+        float shadow = soft_shadow(field, pos, scale, params, sunDir, 0.35f, 6.0f);
+        color = srgb_to_linear(albedo) * (0.12f + 0.95f * diffuse * shadow);
+    }
     if (params.style == STYLE_GLOSSY) {
         color += 0.5f * blinn_phong_specular(normal, light, view, 40.0f);
     }
