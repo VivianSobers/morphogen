@@ -60,17 +60,20 @@ inline float2 steady_state(constant SeedParams &p) {
             float u = thomas_steady_u(p.c0, p.c1, p.c2, p.c3, 1.5f);
             return float2(p.c1 - (p.c0 - u) / 1.5f, u);
         }
+        case MODEL_SWIFT_HOHENBERG:
+            return float2(0.0f);
         default:
             return float2(1.0f, 0.0f);
     }
 }
 
-// Steady state with +-5% independent noise on both chemicals.
+// Steady state with +-5% independent noise on both chemicals. A state of
+// zero (Swift-Hohenberg) gets absolute noise of +-0.05 instead.
 inline float4 perturbed_state(constant SeedParams &p, uint2 gid) {
     float2 base = steady_state(p);
-    float nx = pcg_float(p.seed, gid.x, gid.y) - 0.5f;
-    float ny = pcg_float(p.seed + 7919u, gid.x, gid.y) - 0.5f;
-    return float4(base.x * (1.0f + 0.1f * nx), base.y * (1.0f + 0.1f * ny), 0.0f, 1.0f);
+    float2 noise = float2(pcg_float(p.seed, gid.x, gid.y), pcg_float(p.seed + 7919u, gid.x, gid.y)) - 0.5f;
+    float2 scale = select(0.1f * base, float2(0.1f), base == 0.0f);
+    return float4(base + scale * noise, 0.0f, 1.0f);
 }
 
 // For excitable media (stored as (v, u)): a handful of wavefront segments,

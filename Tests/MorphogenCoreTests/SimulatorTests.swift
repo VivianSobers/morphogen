@@ -294,4 +294,28 @@ final class SimulatorTests: XCTestCase {
     let images = try Palette.names.map { try sim.render(palette: $0, style: .flat).dataProvider!.data! as Data }
     XCTAssertEqual(Set(images).count, Palette.names.count)
   }
+
+  func testSwiftHohenbergPicksItsWavelength() throws {
+    // (1 + lap)^2 selects wavelength 2 pi in model units: 2 pi / h cells. With
+    // g = 0 it forms rolls in every direction; for randomly oriented stripes a
+    // straight line crosses 4 / (pi lambda) edges per unit length (Buffon).
+    let benard = Preset.all.first { $0.model == .swiftHohenberg }!
+    let rolls = Preset(name: "rolls", model: .swiftHohenberg, constants: [0.3, 0, benard.constants[2]],
+                       dt: benard.dt, seedShape: .perturbed, steps: benard.steps, palette: "mono", summary: "")
+    let sim = try makeSim(w: 256, h: 256, p: rolls, s: 4)
+    sim.step(rolls.steps)
+    let lum = luminance(try sim.render(palette: "mono", style: .flat))
+    let mean = lum.reduce(0, +) / Double(lum.count)
+    var crossings = 0
+    for line in stride(from: 0, to: 256, by: 4) {
+      for i in 1..<256 {
+        if (lum[line * 256 + i] > mean) != (lum[line * 256 + i - 1] > mean) { crossings += 1 }  // rows
+        if (lum[i * 256 + line] > mean) != (lum[(i - 1) * 256 + line] > mean) { crossings += 1 }  // columns
+      }
+    }
+    let perCell = Double(crossings) / (2 * 64 * 255)
+    let wavelength = 4 / (Double.pi * perCell)
+    let expected = 2 * Double.pi / Double(rolls.constants[2])
+    XCTAssertEqual(wavelength, expected, accuracy: 0.2 * expected)
+  }
 }
