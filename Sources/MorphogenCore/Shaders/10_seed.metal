@@ -3,6 +3,7 @@ using namespace metal;
 
 constant uint SEED_PERTURBED = 4u;
 constant uint SEED_BROKEN_WAVES = 5u;
+constant uint SEED_PACEMAKERS = 6u;
 
 // Gierer-Meinhardt's steady activator: with v = u^2 / nu the activator
 // equation becomes (u - sigma)(1 + kappa u^2) = nu, a cubic solved by Newton's
@@ -62,6 +63,11 @@ inline float2 steady_state(constant SeedParams &p) {
         }
         case MODEL_SWIFT_HOHENBERG:
             return float2(0.0f);
+        case MODEL_PREDATOR_PREY: {
+            // h = c0, k = c1, m = c2: u = m h / (k - m), v = (1 - u)(u + h).
+            float u = p.c2 * p.c0 / (p.c1 - p.c2);
+            return float2((1.0f - u) * (p.c0 + u), u);
+        }
         default:
             return float2(1.0f, 0.0f);
     }
@@ -120,6 +126,24 @@ inline float4 broken_waves(constant SeedParams &p, uint2 gid) {
     return float4(v, u, 0.0f, 1.0f);
 }
 
+// A quiet excitable medium with a few pacemakers: small discs whose z holds
+// 1 + phase. barkley_step advances the phase and fires the disc each time it
+// wraps, sending out a ring. Random phases keep the pacemakers out of step.
+inline float4 pacemakers(constant SeedParams &p, uint2 gid) {
+    float2 size = float2(p.width, p.height);
+    uint count = 3u + pcg_hash(p.seed) % 3u;
+    float z = 0.0f;
+    for (uint i = 0u; i < count; ++i) {
+        float2 centre = float2(pcg_float(p.seed + i, 71u, 83u), pcg_float(p.seed + i, 97u, 101u)) * size;
+        float2 d = float2(gid) - centre;
+        d -= size * round(d / size);
+        if (length(d) <= 4.0f) {
+            z = 1.0f + pcg_float(p.seed + i, 103u, 107u);
+        }
+    }
+    return float4(0.0f, 0.0f, z, 1.0f);
+}
+
 kernel void seed_field(
     texture2d<float, access::write> outTex [[texture(0)]],
     constant SeedParams &params [[buffer(0)]],
@@ -132,6 +156,10 @@ kernel void seed_field(
     if (params.shape == SEED_PERTURBED) {
         outTex.write(params.model == MODEL_MAY_LEONARD ? coexisting_species(params, gid)
                                                        : perturbed_state(params, gid), gid);
+        return;
+    }
+    if (params.shape == SEED_PACEMAKERS) {
+        outTex.write(pacemakers(params, gid), gid);
         return;
     }
     if (params.shape == SEED_BROKEN_WAVES) {

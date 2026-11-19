@@ -10,7 +10,9 @@ using namespace metal;
 //   v_t = u - v
 //
 // c0 = a (wave width), c1 = b (excitation threshold), c2 = eps (how much
-// faster u reacts than v). v does not diffuse. Stored as (v, u).
+// faster u reacts than v), c3 = pacemaker period. v does not diffuse.
+// Stored as (v, u, pacemaker): cells with z >= 1 are pacemakers whose phase
+// fract(z) advances by dt / period and which fire (u = 1) each time it wraps.
 kernel void barkley_step(
     texture2d<float, access::read> field [[texture(0)]],
     texture2d<float, access::write> next [[texture(1)]],
@@ -28,5 +30,15 @@ kernel void barkley_step(
 
     float du = p.Du * laplacian(nb).y + u * (1.0f - u) * (u - threshold) / p.c2;
     float dv = u - v;
-    next.write(float4(v + p.dt * dv, saturate(u + p.dt * du), 0.0f, 1.0f), gid);
+    float uNext = saturate(u + p.dt * du);
+
+    float pacemaker = field.read(gid).z;
+    if (pacemaker >= 1.0f) {
+        pacemaker += p.dt / p.c3;
+        if (pacemaker >= 2.0f) {
+            pacemaker -= 1.0f;
+            uNext = 1.0f;
+        }
+    }
+    next.write(float4(v + p.dt * dv, uNext, pacemaker, 1.0f), gid);
 }

@@ -3,7 +3,7 @@ import Foundation
 /// The reaction-diffusion system a preset runs. Raw values match MODEL_* in 00_common.metal.
 public enum Model: UInt32, CaseIterable {
   case grayScott = 0, barkley = 1, brusselator = 2, schnakenberg = 3
-  case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6, swiftHohenberg = 7, mayLeonard = 8
+  case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6, swiftHohenberg = 7, mayLeonard = 8, predatorPrey = 9
 
   /// Human-readable name, as used in the README and `--list`.
   public var title: String {
@@ -17,6 +17,7 @@ public enum Model: UInt32, CaseIterable {
     case .thomas: return "Thomas"
     case .swiftHohenberg: return "Swift-Hohenberg"
     case .mayLeonard: return "May-Leonard"
+    case .predatorPrey: return "Rosenzweig-MacArthur"
     }
   }
 
@@ -31,6 +32,7 @@ public enum Model: UInt32, CaseIterable {
     case .thomas: return "thomas_step"
     case .swiftHohenberg: return "swift_hohenberg_step"
     case .mayLeonard: return "may_leonard_step"
+    case .predatorPrey: return "predator_prey_step"
     }
   }
 }
@@ -38,7 +40,7 @@ public enum Model: UInt32, CaseIterable {
 /// Starting state, matching the branches in seed_field. The first four are
 /// Gray-Scott shapes; perturbed is any model's steady state plus noise.
 public enum SeedShape: UInt32 {
-  case spots = 0, square = 1, rings = 2, noise = 3, perturbed = 4, brokenWaves = 5
+  case spots = 0, square = 1, rings = 2, noise = 3, perturbed = 4, brokenWaves = 5, pacemakers = 6
 }
 
 public struct Preset: Equatable {
@@ -121,6 +123,10 @@ public struct Preset: Equatable {
     Preset(name: "rps", model: .mayLeonard, constants: [1, 1], du: 2, dt: 0.1,
            seedShape: .perturbed, steps: 20000, palette: "dusk", summary: "rock-paper-scissors species chasing in spirals",
            style: .species),
+    Preset(name: "targets", model: .barkley, constants: [0.75, 0.06, 0.02, 4], du: 15, dt: 0.05,
+           seedShape: .pacemakers, steps: 6000, palette: "aurora", summary: "pacemakers sending out rings"),
+    Preset(name: "predators", model: .predatorPrey, constants: [0.4, 2, 0.6], du: 4, dv: 4, dt: 0.1,
+           seedShape: .perturbed, steps: 20000, palette: "sage", summary: "prey fronts chased by predators"),
   ]
 
   public static func named(_ name: String) -> Preset? { all.first { $0.name == name } }

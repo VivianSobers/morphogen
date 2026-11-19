@@ -11,6 +11,7 @@ constant uint MODEL_LENGYEL_EPSTEIN = 5u;
 constant uint MODEL_THOMAS = 6u;
 constant uint MODEL_SWIFT_HOHENBERG = 7u;
 constant uint MODEL_MAY_LEONARD = 8u;
+constant uint MODEL_PREDATOR_PREY = 9u;
 
 // Every model keeps its chemicals per cell in an rgba32Float texture (two of
 // them, or three for cyclic competition). The y

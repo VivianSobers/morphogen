@@ -314,4 +314,28 @@ final class SimulatorTests: XCTestCase {
     }
     for count in dominant { XCTAssertGreaterThan(count, data.count / 4 / 10, "a species died out") }
   }
+
+  // Mean absolute change of a flat mono render over `extra` more steps.
+  private func motion(_ sim: Simulator, extra: Int) throws -> Double {
+    let before = luminance(try sim.render(palette: "mono", style: .flat))
+    sim.step(extra)
+    let after = luminance(try sim.render(palette: "mono", style: .flat))
+    return zip(before, after).map { abs($0 - $1) }.reduce(0, +) / Double(before.count)
+  }
+
+  func testPredatorPreyWavesNeverSettle() throws {
+    let ecology = Preset.all.first { $0.model == .predatorPrey }!
+    let sim = try makeSim(w: 256, h: 256, p: ecology, s: 2)
+    sim.step(ecology.steps)
+    XCTAssertGreaterThan(try motion(sim, extra: 200), 10)
+  }
+
+  func testPacemakersEmitRings() throws {
+    // Pacemakers fire every period, so long after the seed has burned out the
+    // field is still changing as new rings travel outward.
+    let targets = Preset.all.first { $0.seedShape == .pacemakers }!
+    let sim = try makeSim(w: 256, h: 256, p: targets, s: 3)
+    sim.step(targets.steps)
+    XCTAssertGreaterThan(try motion(sim, extra: 100), 5)
+  }
 }
