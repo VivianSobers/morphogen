@@ -22,3 +22,8 @@ public func writeGIF(_ frames: [CGImage], to url: URL, frameDelay: Double) throw
   for f in frames { CGImageDestinationAddImage(dest, f, p) }
   guard CGImageDestinationFinalize(dest) else { throw MorphogenError.io("cannot write \(url.path)") }
 }
+
+/// Splits `totalSteps` into `frames` near-equal chunks that sum exactly to it.
+public func frameSchedule(totalSteps: Int, frames: Int) -> [Int] {
+  (0..<frames).map { i in (i + 1) * totalSteps / frames - i * totalSteps / frames }
+}

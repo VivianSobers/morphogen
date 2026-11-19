@@ -73,6 +73,7 @@ let seed = seedArg ?? UInt32.random(in: 1...UInt32.max)
 let out = outPath ?? "\(preset.name).png"
 let frames = framesArg ?? 120
 guard (2...600).contains(frames) else { fail("frames must be in 2...600", 64) }
+guard gifPath == nil || frames <= steps else { fail("frames (\(frames)) cannot exceed steps (\(steps))", 64) }
 let gifSize = gifSzArg ?? 512
 guard (16...4096).contains(gifSize) else { fail("gif-size must be in 16...4096", 64) }
 
@@ -83,15 +84,15 @@ let t0 = ProcessInfo.processInfo.systemUptime
 do {
   let sim = try Simulator(width: w, height: h, preset: preset, seed: seed, feed: feed, kill: kill)
   if let gp = gifPath {
-    let chunk = max(1, steps / frames)
-    var fList: [CGImage] = []
-    for _ in 0..<frames {
+    // gif-size is the longer side; the shorter one keeps the grid's aspect ratio.
+    let scale = Double(gifSize) / Double(max(w, h))
+    let (gifW, gifH) = (max(1, Int((Double(w) * scale).rounded())), max(1, Int((Double(h) * scale).rounded())))
+    var gifFrames: [CGImage] = []
+    for chunk in frameSchedule(totalSteps: steps, frames: frames) {
       sim.step(chunk)
-      fList.append(try sim.render(palette: pal, style: style, outputWidth: gifSize, outputHeight: gifSize))
+      gifFrames.append(try sim.render(palette: pal, style: style, outputWidth: gifW, outputHeight: gifH))
     }
-    let rem = steps - (chunk * frames)
-    if rem > 0 { sim.step(rem) }
-    try writeGIF(fList, to: URL(fileURLWithPath: gp), frameDelay: 1.0 / 30.0)
+    try writeGIF(gifFrames, to: URL(fileURLWithPath: gp), frameDelay: 1.0 / 30.0)
   } else {
     sim.step(steps)
   }

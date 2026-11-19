@@ -198,4 +198,13 @@ final class SimulatorTests: XCTestCase {
     let g = diagonalGradients(try sim.render(palette: "mono", style: .flat))
     XCTAssertGreaterThan(g.upRight, 1.5 * g.downRight, "stripes should run down-right")
   }
+
+  func testFrameScheduleSumsToTotal() {
+    for (total, frames) in [(10000, 120), (7, 3), (120, 120), (1000, 7)] {
+      let schedule = frameSchedule(totalSteps: total, frames: frames)
+      XCTAssertEqual(schedule.count, frames)
+      XCTAssertEqual(schedule.reduce(0, +), total)
+      XCTAssertLessThanOrEqual(schedule.max()! - schedule.min()!, 1)
+    }
+  }
 }
