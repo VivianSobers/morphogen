@@ -3,6 +3,7 @@ import Foundation
 /// The reaction-diffusion system a preset runs. Raw values match MODEL_* in 00_common.metal.
 public enum Model: UInt32, CaseIterable {
   case grayScott = 0, barkley = 1, brusselator = 2, schnakenberg = 3
+  case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6
 
   var kernel: String {
     switch self {
@@ -10,6 +11,9 @@ public enum Model: UInt32, CaseIterable {
     case .barkley: return "barkley_step"
     case .brusselator: return "brusselator_step"
     case .schnakenberg: return "schnakenberg_step"
+    case .giererMeinhardt: return "gierer_meinhardt_step"
+    case .lengyelEpstein: return "lengyel_epstein_step"
+    case .thomas: return "thomas_step"
     }
   }
 }
@@ -85,6 +89,12 @@ public struct Preset: Equatable {
            seedShape: .perturbed, steps: 80000, palette: "coral", summary: "Brusselator stripes, like ripples in sand"),
     Preset(name: "leopard", model: .schnakenberg, constants: [0.1, 0.9], du: 6, dv: 120, dt: 0.008,
            seedShape: .perturbed, steps: 100000, palette: "magma", summary: "Schnakenberg spots packing into hexagons"),
+    Preset(name: "maze", model: .giererMeinhardt, constants: [1.5, 0.1, 0.02], du: 4, dv: 120, dt: 0.006,
+           seedShape: .perturbed, steps: 80000, palette: "ocean", summary: "Gierer-Meinhardt stripes from a saturating activator"),
+    Preset(name: "cima", model: .lengyelEpstein, constants: [12, 0.3], du: 1, dv: 30, dt: 0.02,
+           seedShape: .perturbed, steps: 30000, palette: "coral", summary: "Lengyel-Epstein, the first Turing pattern seen in a lab"),
+    Preset(name: "honeycomb", model: .thomas, constants: [150, 100, 13, 0.05], du: 0.5, dv: 13.5, dt: 0.02,
+           seedShape: .perturbed, steps: 30000, palette: "mono", summary: "Thomas substrate inhibition: holes in a sheet"),
   ]
 
   public static func named(_ name: String) -> Preset? { all.first { $0.name == name } }

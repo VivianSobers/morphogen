@@ -37,7 +37,7 @@ final class SimulatorTests: XCTestCase {
   func testEveryPresetFormsPattern() throws {
     for p in Preset.all {
       let sim = try makeSim(w: 256, h: 256, p: p, s: 42)
-      sim.step(min(p.steps, 4000))
+      sim.step(p.steps)  // the preset's own run: small time steps need many steps
       let s = sim.stats()
       XCTAssertTrue(s.minV.isFinite && s.maxV.isFinite && s.meanV.isFinite, "\(p.name) blew up")
       // Relative spread, since each model's displayed chemical has its own scale.

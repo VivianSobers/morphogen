@@ -6,6 +6,9 @@ constant uint MODEL_GRAY_SCOTT = 0u;
 constant uint MODEL_BARKLEY = 1u;
 constant uint MODEL_BRUSSELATOR = 2u;
 constant uint MODEL_SCHNAKENBERG = 3u;
+constant uint MODEL_GIERER_MEINHARDT = 4u;
+constant uint MODEL_LENGYEL_EPSTEIN = 5u;
+constant uint MODEL_THOMAS = 6u;
 
 // Every model keeps two chemicals per cell in an rg32Float texture. The y
 // channel always holds the one that is displayed. Du and Dv are the diffusion
