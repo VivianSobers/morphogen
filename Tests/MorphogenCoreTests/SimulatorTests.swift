@@ -1,6 +1,7 @@
 import XCTest
 import Metal
 import CoreGraphics
+import ImageIO
 @testable import MorphogenCore
 
 final class SimulatorTests: XCTestCase {
@@ -97,5 +98,54 @@ final class SimulatorTests: XCTestCase {
         XCTAssertThrowsError(try sim.render(palette: "plaid")) { error in
             XCTAssertEqual(error as? MorphogenError, .unknownPalette("plaid"))
         }
+    }
+
+    func testWritePNGRoundTrip() throws {
+        let sim = try makeSim(width: 64, height: 64)
+        let img = try sim.render(palette: "coral")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test_\(UUID().uuidString).png")
+        let desc = "preset=coral size=64x64"
+        try writePNG(img, to: url, description: desc)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let readImg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            XCTFail("Failed to read PNG back"); return
+        }
+        XCTAssertEqual(readImg.width, 64)
+        XCTAssertEqual(readImg.height, 64)
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        let pngProps = props?[kCGImagePropertyPNGDictionary] as? [CFString: Any]
+        let readDesc = pngProps?[kCGImagePropertyPNGDescription] as? String
+        XCTAssertEqual(readDesc, desc)
+    }
+
+    func testWritePNGMissingDirectoryThrows() throws {
+        let sim = try makeSim(width: 32, height: 32)
+        let img = try sim.render(palette: "mono")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("nonexistent_\(UUID().uuidString)/out.png")
+        XCTAssertThrowsError(try writePNG(img, to: url, description: "test")) { err in
+            guard case MorphogenError.io = err else {
+                XCTFail("Expected MorphogenError.io, got \(err)")
+                return
+            }
+        }
+    }
+
+    func testWriteGIFFrameCount() throws {
+        let sim = try makeSim(width: 32, height: 32)
+        let frame1 = try sim.render(palette: "ocean")
+        sim.step(50)
+        let frame2 = try sim.render(palette: "ocean")
+        sim.step(50)
+        let frame3 = try sim.render(palette: "ocean")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test_\(UUID().uuidString).gif")
+        try writeGIF([frame1, frame2, frame3], to: url, frameDelay: 0.05)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            XCTFail("Failed to read GIF back"); return
+        }
+        XCTAssertEqual(CGImageSourceGetCount(src), 3)
     }
 }
