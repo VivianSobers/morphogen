@@ -146,8 +146,9 @@ final class SimulatorTests: XCTestCase {
 
   private func luminance(_ img: CGImage) -> [Double] {
     let data = img.dataProvider!.data! as Data
-    return stride(from: 0, to: data.count, by: 4).map {
-      0.299 * Double(data[$0]) + 0.587 * Double(data[$0 + 1]) + 0.114 * Double(data[$0 + 2])
+    return stride(from: 0, to: data.count, by: 4).map { (i: Int) -> Double in
+      let red = Double(data[i]), green = Double(data[i + 1]), blue = Double(data[i + 2])
+      return 0.299 * red + 0.587 * green + 0.114 * blue
     }
   }
 
@@ -255,7 +256,9 @@ final class SimulatorTests: XCTestCase {
     sim.step(1500)
     let emboss = luminance(try sim.render(palette: "ink", style: .emboss))
     let relief = luminance(try sim.render(palette: "ink", style: .relief))
-    let shadowed = zip(emboss, relief).filter { $0 > 60 && $1 < 0.6 * $0 }.count
+    let shadowed = zip(emboss, relief).filter { (lit: Double, shaded: Double) -> Bool in
+      lit > 60 && shaded < 0.6 * lit
+    }.count
     XCTAssertGreaterThan(shadowed, emboss.count / 20, "relief should shade the lee side of ridges")
   }
 
