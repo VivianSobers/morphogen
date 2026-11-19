@@ -1,0 +1,4 @@
+.build/
+/*.png
+/*.gif
+.DS_Store
