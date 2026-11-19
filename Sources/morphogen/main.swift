@@ -12,6 +12,7 @@ let usage = """
     --feed F --kill K    override the preset's feed and kill rates
     --palette NAME       color ramp (default: the preset's)
     --style NAME         flat, emboss or glossy (default emboss)
+    --zoom N             upsample the PNG N times (default 1)
     --seed N             random seed (default: random, printed)
     --out FILE.png       output image (default <preset>.png)
     --gif FILE.gif       also write an animation of the pattern growing
@@ -30,7 +31,7 @@ func fail(_ message: String, _ code: Int32 = 64) -> Never {
 var options: [String: String] = [:]
 var arguments = CommandLine.arguments.dropFirst()
 let valueOptions: Set = ["--preset", "--size", "--width", "--height", "--steps", "--feed", "--kill",
-                         "--palette", "--style", "--seed", "--out", "--gif", "--frames", "--gif-size"]
+                         "--palette", "--style", "--zoom", "--seed", "--out", "--gif", "--frames", "--gif-size"]
 
 while let argument = arguments.popFirst() {
   switch argument {
@@ -81,12 +82,14 @@ let height = number("--height", default: size, in: 16...4096)
 let steps = number("--steps", default: preset.steps, in: 1...1_000_000)
 let feed = number("--feed", default: preset.feed, in: 0...0.12)
 let kill = number("--kill", default: preset.kill, in: 0...0.12)
+let zoom = number("--zoom", default: 1, in: 1...8)
 let seed = number("--seed", default: UInt32.random(in: 1...UInt32.max), in: 0...UInt32.max)
 let frames = number("--frames", default: 120, in: 2...600)
 let gifSize = number("--gif-size", default: 512, in: 16...4096)
 let output = options["--out"] ?? "\(preset.name).png"
 let gifPath = options["--gif"]
 if gifPath != nil && frames > steps { fail("--frames (\(frames)) cannot exceed --steps (\(steps))") }
+if max(width, height) * zoom > 8192 { fail("--zoom makes the image larger than 8192 pixels") }
 
 // MARK: - Run
 
@@ -115,7 +118,7 @@ do {
   }
 
   let image = try simulator.render(palette: palette, style: style,
-                                   outputWidth: width, outputHeight: height)
+                                   outputWidth: width * zoom, outputHeight: height * zoom)
   try writePNG(image, to: URL(fileURLWithPath: output), description: banner)
   print("wrote \(output) (\(String(format: "%.1f", Date().timeIntervalSince(start)))s)")
 } catch let error as MorphogenError {
