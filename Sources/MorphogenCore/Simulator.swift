@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import CoreGraphics
 
 public struct FieldStats: Equatable {
     public let minV, maxV, meanV: Float
@@ -13,8 +14,8 @@ struct SimParams {
     var width, height, isMapped: UInt32
     var dt, Du, Dv: Float
 }
-
 struct SeedParams { var width, height, seed, shape: UInt32 }
+struct ColorParams { var width, height, outWidth, outHeight, paletteIndex: UInt32 }
 struct PartialStats { var minV, maxV, sumV: Float }
 
 public final class Simulator {
@@ -22,7 +23,7 @@ public final class Simulator {
     let device: MTLDevice
     let queue: MTLCommandQueue
     let library: MTLLibrary
-    let seedPipe, stepPipe, statsPipe: MTLComputePipelineState
+    let seedPipe, stepPipe, statsPipe, colorizePipe: MTLComputePipelineState
     var texA, texB: MTLTexture
     var currentTex = 0
     let simParams: SimParams
@@ -34,12 +35,14 @@ public final class Simulator {
         self.library = lib
         guard let sFn = lib.makeFunction(name: "seed_field"),
               let stFn = lib.makeFunction(name: "gray_scott_step"),
-              let fFn = lib.makeFunction(name: "field_stats") else {
+              let fFn = lib.makeFunction(name: "field_stats"),
+              let cFn = lib.makeFunction(name: "colorize") else {
             throw MorphogenError.shaderCompile("Missing kernel function")
         }
         self.seedPipe = try dev.makeComputePipelineState(function: sFn)
         self.stepPipe = try dev.makeComputePipelineState(function: stFn)
         self.statsPipe = try dev.makeComputePipelineState(function: fFn)
+        self.colorizePipe = try dev.makeComputePipelineState(function: cFn)
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rg32Float, width: width, height: height, mipmapped: false)
         desc.usage = [.shaderRead, .shaderWrite]
@@ -114,5 +117,38 @@ public final class Simulator {
             sumV += Double(ptr[i].sumV)
         }
         return FieldStats(minV: minV, maxV: maxV, meanV: Float(sumV / Double(width * height)))
+    }
+
+    public func render(palette: String, outputWidth: Int? = nil, outputHeight: Int? = nil) throws -> CGImage {
+        guard let pIdx = Palette.index(of: palette) else { throw MorphogenError.unknownPalette(palette) }
+        let outW = outputWidth ?? width, outH = outputHeight ?? height
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: outW, height: outH, mipmapped: false)
+        desc.usage = [.shaderWrite]
+        desc.storageMode = .shared
+        guard let outTex = device.makeTexture(descriptor: desc),
+              let cb = queue.makeCommandBuffer(),
+              let enc = cb.makeComputeCommandEncoder() else { throw MorphogenError.noDevice }
+
+        enc.setComputePipelineState(colorizePipe)
+        enc.setTexture((currentTex == 0) ? texA : texB, index: 0)
+        enc.setTexture(outTex, index: 1)
+        var cp = ColorParams(width: UInt32(width), height: UInt32(height), outWidth: UInt32(outW), outHeight: UInt32(outH), paletteIndex: pIdx)
+        enc.setBytes(&cp, length: MemoryLayout<ColorParams>.stride, index: 0)
+        enc.dispatchThreads(MTLSize(width: outW, height: outH, depth: 1), threadsPerThreadgroup: MTLSize(width: min(16, outW), height: min(16, outH), depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+
+        let bpr = outW * 4
+        var data = Data(count: bpr * outH)
+        data.withUnsafeMutableBytes {
+            outTex.getBytes($0.baseAddress!, bytesPerRow: bpr, from: MTLRegionMake2D(0, 0, outW, outH), mipmapLevel: 0)
+        }
+        guard let prov = CGDataProvider(data: data as CFData),
+              let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let img = CGImage(width: outW, height: outH, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bpr, space: cs, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue | CGBitmapInfo.byteOrder32Big.rawValue), provider: prov, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
+            throw MorphogenError.io("Failed creating CGImage")
+        }
+        return img
     }
 }

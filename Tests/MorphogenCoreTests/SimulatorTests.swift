@@ -46,4 +46,56 @@ final class SimulatorTests: XCTestCase {
             XCTAssertGreaterThan(s.meanV, 0.01); XCTAssertLessThan(s.meanV, 0.6)
         }
     }
+
+    func testRenderSize() throws {
+        let sim = try makeSim(width: 128, height: 128)
+        let img1 = try sim.render(palette: "coral")
+        XCTAssertEqual(img1.width, 128); XCTAssertEqual(img1.height, 128)
+        let img2 = try sim.render(palette: "coral", outputWidth: 64, outputHeight: 64)
+        XCTAssertEqual(img2.width, 64); XCTAssertEqual(img2.height, 64)
+    }
+
+    func testOddSizeFullyWritten() throws {
+        for (w, h) in [(100, 100), (333, 97)] {
+            let sim = try makeSim(width: w, height: h)
+            sim.step(200)
+            let img = try sim.render(palette: "ocean")
+            guard let data = img.dataProvider?.data as Data? else { XCTFail(); return }
+            for i in stride(from: 3, to: data.count, by: 4) {
+                XCTAssertEqual(data[i], 255)
+            }
+        }
+    }
+
+    func testRenderNotUniform() throws {
+        let sim = try makeSim(width: 128, height: 128, preset: Preset.named("coral")!)
+        sim.step(1500)
+        let img = try sim.render(palette: "coral")
+        guard let data = img.dataProvider?.data as Data? else { XCTFail(); return }
+        var sum: Double = 0, sqSum: Double = 0, count: Double = 0
+        for i in stride(from: 0, to: data.count, by: 4) {
+            let r = Double(data[i]), g = Double(data[i+1]), b = Double(data[i+2])
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b
+            sum += lum; sqSum += lum * lum; count += 1
+        }
+        let mean = sum / count
+        let stdDev = sqrt(sqSum / count - mean * mean)
+        XCTAssertGreaterThan(stdDev, 10.0)
+    }
+
+    func testRenderDeterministic() throws {
+        let sim1 = try makeSim(width: 128, height: 128, preset: Preset.named("coral")!, seed: 42)
+        let sim2 = try makeSim(width: 128, height: 128, preset: Preset.named("coral")!, seed: 42)
+        sim1.step(200); sim2.step(200)
+        let img1 = try sim1.render(palette: "coral")
+        let img2 = try sim2.render(palette: "coral")
+        XCTAssertEqual(img1.dataProvider?.data as Data?, img2.dataProvider?.data as Data?)
+    }
+
+    func testUnknownPaletteThrows() throws {
+        let sim = try makeSim()
+        XCTAssertThrowsError(try sim.render(palette: "plaid")) { error in
+            XCTAssertEqual(error as? MorphogenError, .unknownPalette("plaid"))
+        }
+    }
 }
