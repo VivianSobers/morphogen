@@ -23,6 +23,21 @@ inline float sample_v(texture2d<float, access::read> field, float2 pos, uint w, 
     return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
 }
 
+// Average of V over the grid cells one output pixel covers (a box filter of
+// up to 8x8 taps). When the image is smaller than the grid, fine detail is
+// averaged instead of aliased into false patterns.
+inline float footprint_v(texture2d<float, access::read> field, float2 centre, float2 scale, uint w, uint h) {
+    uint2 taps = uint2(clamp(ceil(scale), 1.0f, 8.0f));
+    float sum = 0.0f;
+    for (uint j = 0u; j < taps.y; ++j) {
+        for (uint i = 0u; i < taps.x; ++i) {
+            float2 offset = (float2(i, j) + 0.5f) / float2(taps) - 0.5f;
+            sum += sample_v(field, centre + offset * scale, w, h);
+        }
+    }
+    return sum / float(taps.x * taps.y);
+}
+
 // Maps V onto a palette and lights it as if V were a height field.
 //   flat:   palette color only
 //   emboss: diffuse light from the top left
@@ -44,7 +59,7 @@ kernel void colorize(
     float2 pos = (float2(gid) + 0.5f) * scale - 0.5f;
 
     float range = max(params.vHigh - params.vLow, 1e-4f);
-    float t = saturate((sample_v(field, pos, w, h) - params.vLow) / range);
+    float t = saturate((footprint_v(field, pos, scale, w, h) - params.vLow) / range);
     float3 albedo = sample_palette(params.paletteIndex, t);
 
     if (params.style == STYLE_FLAT) {
@@ -52,11 +67,13 @@ kernel void colorize(
         return;
     }
 
-    // Slope of the normalized height field, central differences in grid cells.
-    float dx = (sample_v(field, pos + float2(1.0f, 0.0f), w, h) -
-                sample_v(field, pos - float2(1.0f, 0.0f), w, h)) * 0.5f / range;
-    float dy = (sample_v(field, pos + float2(0.0f, 1.0f), w, h) -
-                sample_v(field, pos - float2(0.0f, 1.0f), w, h)) * 0.5f / range;
+    // Slope of the normalized height field, central differences one output
+    // pixel apart (at least one grid cell), each filtered like the colour.
+    float2 stepSize = max(scale, float2(1.0f));
+    float dx = (footprint_v(field, pos + float2(stepSize.x, 0.0f), scale, w, h) -
+                footprint_v(field, pos - float2(stepSize.x, 0.0f), scale, w, h)) * 0.5f / (range * stepSize.x);
+    float dy = (footprint_v(field, pos + float2(0.0f, stepSize.y), scale, w, h) -
+                footprint_v(field, pos - float2(0.0f, stepSize.y), scale, w, h)) * 0.5f / (range * stepSize.y);
 
     float3 normal = compute_surface_normal(dx, dy, 2.5f);
     float3 light = normalize(float3(-0.6f, -0.6f, 1.0f));

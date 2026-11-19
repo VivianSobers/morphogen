@@ -234,4 +234,25 @@ final class SimulatorTests: XCTestCase {
       XCTAssertLessThanOrEqual(schedule.max()! - schedule.min()!, 1)
     }
   }
+
+  func testDownscaleAveragesInsteadOfAliasing() throws {
+    // Fine vertical stripes, a few cells wide: point sampling at 1/4 size aliases them.
+    let stripes = Preset(name: "s", feed: 0.030, kill: 0.057, seedShape: .noise, steps: 3000,
+                         palette: "mono", summary: "", flowAngle: 90)
+    let sim = try makeSim(w: 256, h: 256, p: stripes, s: 5)
+    sim.step(3000)
+    let full = luminance(try sim.render(palette: "mono", style: .flat))
+    let small = luminance(try sim.render(palette: "mono", style: .flat, outputWidth: 64, outputHeight: 64))
+
+    // Reference: average each 4x4 block of the full-size render.
+    var error = 0.0
+    for y in 0..<64 {
+      for x in 0..<64 {
+        var block = 0.0
+        for dy in 0..<4 { for dx in 0..<4 { block += full[(y * 4 + dy) * 256 + x * 4 + dx] } }
+        error += abs(block / 16 - small[y * 64 + x])
+      }
+    }
+    XCTAssertLessThan(error / 4096, 12, "downscaled pixels should average the cells they cover")
+  }
 }
