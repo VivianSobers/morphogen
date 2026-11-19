@@ -39,8 +39,8 @@ final class SimulatorTests: XCTestCase {
       let sim = try makeSim(w: 256, h: 256, p: p, s: 42)
       sim.step(min(p.steps, 4000))
       let s = sim.stats()
-      XCTAssertGreaterThan(s.maxV - s.minV, 0.15)
-      XCTAssertGreaterThan(s.meanV, 0.01); XCTAssertLessThan(s.meanV, 0.6)
+      XCTAssertGreaterThan(s.maxV - s.minV, 0.15, p.name)
+      XCTAssertGreaterThan(s.meanV, 0.01, p.name); XCTAssertLessThan(s.meanV, 0.6, p.name)
     }
   }
 
@@ -143,5 +143,59 @@ final class SimulatorTests: XCTestCase {
     sim.step(1500)
     let images = try RenderStyle.allCases.map { try sim.render(palette: "coral", style: $0).dataProvider!.data! as Data }
     XCTAssertEqual(Set(images).count, RenderStyle.allCases.count)
+  }
+
+  // Mean absolute brightness change between neighbors along x and along y.
+  private func meanGradients(_ img: CGImage) -> (x: Double, y: Double) {
+    let lum = luminance(img), w = img.width, h = img.height
+    var gx = 0.0, gy = 0.0
+    for y in 0..<(h - 1) {
+      for x in 0..<(w - 1) {
+        gx += abs(lum[y * w + x + 1] - lum[y * w + x])
+        gy += abs(lum[(y + 1) * w + x] - lum[y * w + x])
+      }
+    }
+    return (gx, gy)
+  }
+
+  func testFlowAlignsStripes() throws {
+    let horizontal = Preset(name: "h", feed: 0.037, kill: 0.06, seedShape: .noise, steps: 4000,
+                            palette: "mono", summary: "", flowAngle: 0)
+    let sim = try makeSim(w: 256, h: 256, p: horizontal, s: 5)
+    sim.step(4000)
+    let g = meanGradients(try sim.render(palette: "mono", style: .flat))
+    XCTAssertGreaterThan(g.y, 2 * g.x, "stripes should run along x")
+  }
+
+  func testFlowAngleRotatesStripes() throws {
+    let vertical = Preset(name: "v", feed: 0.037, kill: 0.06, seedShape: .noise, steps: 4000,
+                          palette: "mono", summary: "", flowAngle: 90)
+    let sim = try makeSim(w: 256, h: 256, p: vertical, s: 5)
+    sim.step(4000)
+    let g = meanGradients(try sim.render(palette: "mono", style: .flat))
+    XCTAssertGreaterThan(g.x, 2 * g.y, "stripes should run along y")
+  }
+
+  // Brightness change along the two diagonals: down-right (1, 1) and up-right (1, -1).
+  private func diagonalGradients(_ img: CGImage) -> (downRight: Double, upRight: Double) {
+    let lum = luminance(img), w = img.width, h = img.height
+    var dr = 0.0, ur = 0.0
+    for y in 1..<(h - 1) {
+      for x in 0..<(w - 1) {
+        dr += abs(lum[(y + 1) * w + x + 1] - lum[y * w + x])
+        ur += abs(lum[(y - 1) * w + x + 1] - lum[y * w + x])
+      }
+    }
+    return (dr, ur)
+  }
+
+  func testDiagonalFlowFollowsAngle() throws {
+    // 45 degrees in image coordinates (y down) points down-right.
+    let diagonal = Preset(name: "d", feed: 0.037, kill: 0.06, seedShape: .noise, steps: 4000,
+                          palette: "mono", summary: "", flowAngle: 45)
+    let sim = try makeSim(w: 256, h: 256, p: diagonal, s: 5)
+    sim.step(4000)
+    let g = diagonalGradients(try sim.render(palette: "mono", style: .flat))
+    XCTAssertGreaterThan(g.upRight, 1.5 * g.downRight, "stripes should run down-right")
   }
 }

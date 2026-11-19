@@ -12,19 +12,8 @@ struct SimParams {
     float dt;
     float Du;
     float Dv;
-};
-
-struct AnisoParams {
-    float feed;
-    float kill;
-    uint width;
-    uint height;
-    float angle;
-    float DuPar;
-    float DuPerp;
-    float DvPar;
-    float DvPerp;
-    float dt;
+    float flowAngle;     // radians
+    float flowStrength;  // 0 = isotropic, < 1
 };
 
 struct SeedParams {

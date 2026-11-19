@@ -11,6 +11,7 @@ struct SimParams {
   var feed, kill, feedEnd, killEnd: Float
   var width, height, isMapped: UInt32
   var dt, Du, Dv: Float
+  var flowAngle, flowStrength: Float
 }
 struct SeedParams { var width, height, seed, shape: UInt32 }
 struct ColorParams {
@@ -35,7 +36,7 @@ public final class Simulator {
       guard let fn = lib.makeFunction(name: n) else { throw MorphogenError.shaderCompile("missing \(n)") }
       return try d.makeComputePipelineState(function: fn)
     }
-    (sPipe, stPipe, fPipe, cPipe) = (try p("seed_field"), try p("gray_scott_step"), try p("field_stats"), try p("colorize"))
+    (sPipe, stPipe, fPipe, cPipe) = (try p("seed_field"), try p(preset.flowAngle == nil ? "gray_scott_step" : "gray_scott_step_flow"), try p("field_stats"), try p("colorize"))
 
     let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rg32Float, width: width, height: height, mipmapped: false)
     desc.usage = [.shaderRead, .shaderWrite]; desc.storageMode = .private
@@ -44,7 +45,8 @@ public final class Simulator {
 
     let f = feed ?? preset.feed, k = kill ?? preset.kill
     let isMap: UInt32 = (preset.feedEnd != nil && preset.killEnd != nil) ? 1 : 0
-    params = SimParams(feed: f, kill: k, feedEnd: preset.feedEnd ?? f, killEnd: preset.killEnd ?? k, width: UInt32(width), height: UInt32(height), isMapped: isMap, dt: 1.0, Du: 1.0, Dv: 0.5)
+    params = SimParams(feed: f, kill: k, feedEnd: preset.feedEnd ?? f, killEnd: preset.killEnd ?? k, width: UInt32(width), height: UInt32(height), isMapped: isMap, dt: 1.0, Du: 1.0, Dv: 0.5,
+                       flowAngle: (preset.flowAngle ?? 0) * .pi / 180, flowStrength: preset.flowAngle == nil ? 0 : 0.9)
 
     guard let cb = q.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else { throw MorphogenError.noDevice }
     enc.setComputePipelineState(sPipe); enc.setTexture(texA, index: 0)
