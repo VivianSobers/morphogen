@@ -2,10 +2,13 @@ import CoreGraphics
 import Foundation
 import Metal
 
+/// Statistics of the displayed chemical (V) and its partner (W).
 public struct FieldStats: Equatable {
   public let minV: Float
   public let maxV: Float
   public let meanV: Float
+  public let minW: Float
+  public let maxW: Float
 }
 
 // Mirrors of the structs in 00_common.metal. Every field is 4 bytes, so the
@@ -25,14 +28,14 @@ struct SeedParams {
 
 struct ColorParams {
   var width, height, outWidth, outHeight, paletteIndex, style: UInt32
-  var vLow, vHigh: Float
+  var vLow, vHigh, wLow, wHigh: Float
 }
 
 struct PartialStats {
-  var minV, maxV, sumV: Float
+  var lo, hi, sum: SIMD2<Float>  // x = partner, y = displayed
 }
 
-/// A Gray-Scott reaction-diffusion simulation on the GPU.
+/// A reaction-diffusion simulation on the GPU.
 ///
 /// The (U, V) field lives in two rg32Float textures; each step reads one and
 /// writes the other.
@@ -45,6 +48,7 @@ public final class Simulator {
   private let seedPipeline: MTLComputePipelineState
   private let stepPipeline: MTLComputePipelineState
   private let statsPipeline: MTLComputePipelineState
+  private let foldPipeline: MTLComputePipelineState
   private let colorPipeline: MTLComputePipelineState
   private var fields: [MTLTexture]
   private var current = 0
@@ -71,6 +75,7 @@ public final class Simulator {
     seedPipeline = try pipeline("seed_field")
     stepPipeline = try pipeline(preset.flowAngle == nil ? preset.model.kernel : "gray_scott_step_flow")
     statsPipeline = try pipeline("field_stats")
+    foldPipeline = try pipeline("fold_stats")
     colorPipeline = try pipeline("colorize")
 
     let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -121,15 +126,16 @@ public final class Simulator {
     }
   }
 
-  /// Min, max and mean of V. The GPU reduces each 16x16 tile; the CPU folds the tiles.
+  /// Min, max and mean of the field. The GPU reduces each 16x16 tile, then
+  /// folds the tiles into one result.
   public func stats() -> FieldStats {
     let group = Self.statsGroupSize
     let groupsX = (width + group - 1) / group
     let groupsY = (height + group - 1) / group
-    let tiles = groupsX * groupsY
-    guard let partials = device.makeBuffer(length: tiles * MemoryLayout<PartialStats>.stride,
+    var tiles = UInt32(groupsX * groupsY)
+    guard let partials = device.makeBuffer(length: Int(tiles) * MemoryLayout<PartialStats>.stride,
                                            options: .storageModeShared) else {
-      return FieldStats(minV: 0, maxV: 0, meanV: 0)
+      return FieldStats(minV: 0, maxV: 0, meanV: 0, minW: 0, maxW: 0)
     }
 
     var size = SIMD2<UInt32>(UInt32(width), UInt32(height))
@@ -140,14 +146,17 @@ public final class Simulator {
       encoder.setBytes(&size, length: MemoryLayout<SIMD2<UInt32>>.stride, index: 1)
       encoder.dispatchThreadgroups(MTLSize(width: groupsX, height: groupsY, depth: 1),
                                    threadsPerThreadgroup: MTLSize(width: group, height: group, depth: 1))
+      encoder.memoryBarrier(scope: .buffers)
+
+      encoder.setComputePipelineState(foldPipeline)
+      encoder.setBytes(&tiles, length: MemoryLayout<UInt32>.stride, index: 1)
+      encoder.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1),
+                                   threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
     }
 
-    let tileStats = UnsafeBufferPointer(
-      start: partials.contents().bindMemory(to: PartialStats.self, capacity: tiles), count: tiles)
-    let sum = tileStats.reduce(0.0) { $0 + Double($1.sumV) }
-    return FieldStats(minV: tileStats.map(\.minV).min() ?? 0,
-                      maxV: tileStats.map(\.maxV).max() ?? 0,
-                      meanV: Float(sum / Double(width * height)))
+    let total = partials.contents().load(as: PartialStats.self)
+    return FieldStats(minV: total.lo.y, maxV: total.hi.y, meanV: total.sum.y / Float(width * height),
+                      minW: total.lo.x, maxW: total.hi.x)
   }
 
   /// Colors the current V field. The palette spans V's actual range, so every
@@ -168,7 +177,8 @@ public final class Simulator {
     var colorParams = ColorParams(
       width: UInt32(width), height: UInt32(height),
       outWidth: UInt32(outWidth), outHeight: UInt32(outHeight),
-      paletteIndex: paletteIndex, style: style.rawValue, vLow: range.minV, vHigh: range.maxV)
+      paletteIndex: paletteIndex, style: style.rawValue,
+      vLow: range.minV, vHigh: range.maxV, wLow: range.minW, wHigh: range.maxW)
     try run { encoder in
       encoder.setComputePipelineState(colorPipeline)
       encoder.setTexture(fields[current], index: 0)

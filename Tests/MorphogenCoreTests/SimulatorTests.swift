@@ -255,4 +255,18 @@ final class SimulatorTests: XCTestCase {
     }
     XCTAssertLessThan(error / 4096, 12, "downscaled pixels should average the cells they cover")
   }
+
+  func testPhaseStyleCyclesThroughHues() throws {
+    let spiral = Preset.all.first { $0.model == .barkley }!
+    let sim = try makeSim(w: 256, h: 256, p: spiral, s: 9)
+    sim.step(3000)
+    let data = try sim.render(palette: "mono", style: .phase).dataProvider!.data! as Data
+    var dominant = [0, 0, 0]
+    for i in stride(from: 0, to: data.count, by: 4) {
+      let rgb = [data[i], data[i + 1], data[i + 2]]
+      dominant[rgb.firstIndex(of: rgb.max()!)!] += 1
+    }
+    let pixels = data.count / 4
+    for count in dominant { XCTAssertGreaterThan(count, pixels / 10, "phase colors should span red, green and blue") }
+  }
 }

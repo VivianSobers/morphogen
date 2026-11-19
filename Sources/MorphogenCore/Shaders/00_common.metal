@@ -51,12 +51,15 @@ struct ColorParams {
     uint style;
     float vLow;
     float vHigh;
+    float wLow;   // range of the partner chemical (x), for the phase style
+    float wHigh;
 };
 
+// Per-tile statistics of both chemicals: x is the partner, y the displayed one.
 struct PartialStats {
-    float minV;
-    float maxV;
-    float sumV;
+    float2 lo;
+    float2 hi;
+    float2 sum;
 };
 
 inline uint pcg_hash(uint v) {
@@ -159,6 +162,12 @@ constant float3 monoStops[5] = {
     float3(0.75f, 0.75f, 0.75f),
     float3(1.00f, 1.00f, 1.00f)
 };
+
+// Hue in [0, 1) at full saturation and value, in sRGB.
+inline float3 hue_to_rgb(float hue) {
+    float3 k = fract(hue + float3(0.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f;
+    return saturate(abs(k - 3.0f) - 1.0f);
+}
 
 // Five-stop sRGB ramp, t in [0, 1].
 inline float3 sample_palette(uint palette, float t) {

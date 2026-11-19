@@ -99,7 +99,7 @@ public enum Palette {
 
 /// How `Simulator.render` lights the pattern.
 public enum RenderStyle: UInt32, CaseIterable {
-  case flat = 0, emboss = 1, glossy = 2
+  case flat = 0, emboss = 1, glossy = 2, phase = 3
 
   public var name: String { String(describing: self) }
 
