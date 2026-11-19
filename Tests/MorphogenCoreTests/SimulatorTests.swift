@@ -91,16 +91,10 @@ final class SimulatorTests: XCTestCase {
   func testRenderNotUniform() throws {
     let sim = try makeSim()
     sim.step(1500)
-    let img = try sim.render(palette: "coral")
-    let data = img.dataProvider!.data! as Data
-    var sum: Double = 0, sqSum: Double = 0, n: Double = 0
-    for i in stride(from: 0, to: data.count, by: 4) {
-      let r = Double(data[i]), g = Double(data[i+1]), b = Double(data[i+2])
-      let lum = 0.299 * r + 0.587 * g + 0.114 * b
-      sum += lum; sqSum += lum * lum; n += 1
-    }
-    let mean = sum / n
-    XCTAssertGreaterThan(sqrt(sqSum / n - mean * mean), 10.0)
+    let lum = luminance(try sim.render(palette: "coral"))
+    let mean = lum.reduce(0, +) / Double(lum.count)
+    let variance = lum.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(lum.count)
+    XCTAssertGreaterThan(variance.squareRoot(), 10.0)
   }
 
   func testRenderDeterministic() throws {
@@ -172,17 +166,16 @@ final class SimulatorTests: XCTestCase {
     XCTAssertEqual(Set(images).count, RenderStyle.allCases.count)
   }
 
-  // Mean absolute brightness change between neighbors along x and along y.
-  private func meanGradients(_ img: CGImage) -> (x: Double, y: Double) {
+  // Total brightness change between each pixel and its neighbour at (dx, dy).
+  private func gradient(_ img: CGImage, dx: Int, dy: Int) -> Double {
     let lum = luminance(img), w = img.width, h = img.height
-    var gx = 0.0, gy = 0.0
-    for y in 0..<(h - 1) {
-      for x in 0..<(w - 1) {
-        gx += abs(lum[y * w + x + 1] - lum[y * w + x])
-        gy += abs(lum[(y + 1) * w + x] - lum[y * w + x])
+    var total = 0.0
+    for y in max(0, -dy)..<(h - max(0, dy)) {
+      for x in max(0, -dx)..<(w - max(0, dx)) {
+        total += abs(lum[(y + dy) * w + x + dx] - lum[y * w + x])
       }
     }
-    return (gx, gy)
+    return total
   }
 
   func testFlowAlignsStripes() throws {
@@ -190,8 +183,8 @@ final class SimulatorTests: XCTestCase {
                             palette: "mono", summary: "", flowAngle: 0)
     let sim = try makeSim(w: 256, h: 256, p: horizontal, s: 5)
     sim.step(4000)
-    let g = meanGradients(try sim.render(palette: "mono", style: .flat))
-    XCTAssertGreaterThan(g.y, 2 * g.x, "stripes should run along x")
+    let img = try sim.render(palette: "mono", style: .flat)
+    XCTAssertGreaterThan(gradient(img, dx: 0, dy: 1), 2 * gradient(img, dx: 1, dy: 0), "stripes should run along x")
   }
 
   func testFlowAngleRotatesStripes() throws {
@@ -199,21 +192,8 @@ final class SimulatorTests: XCTestCase {
                           palette: "mono", summary: "", flowAngle: 90)
     let sim = try makeSim(w: 256, h: 256, p: vertical, s: 5)
     sim.step(4000)
-    let g = meanGradients(try sim.render(palette: "mono", style: .flat))
-    XCTAssertGreaterThan(g.x, 2 * g.y, "stripes should run along y")
-  }
-
-  // Brightness change along the two diagonals: down-right (1, 1) and up-right (1, -1).
-  private func diagonalGradients(_ img: CGImage) -> (downRight: Double, upRight: Double) {
-    let lum = luminance(img), w = img.width, h = img.height
-    var dr = 0.0, ur = 0.0
-    for y in 1..<(h - 1) {
-      for x in 0..<(w - 1) {
-        dr += abs(lum[(y + 1) * w + x + 1] - lum[y * w + x])
-        ur += abs(lum[(y - 1) * w + x + 1] - lum[y * w + x])
-      }
-    }
-    return (dr, ur)
+    let img = try sim.render(palette: "mono", style: .flat)
+    XCTAssertGreaterThan(gradient(img, dx: 1, dy: 0), 2 * gradient(img, dx: 0, dy: 1), "stripes should run along y")
   }
 
   func testDiagonalFlowFollowsAngle() throws {
@@ -222,8 +202,8 @@ final class SimulatorTests: XCTestCase {
                           palette: "mono", summary: "", flowAngle: 45)
     let sim = try makeSim(w: 256, h: 256, p: diagonal, s: 5)
     sim.step(4000)
-    let g = diagonalGradients(try sim.render(palette: "mono", style: .flat))
-    XCTAssertGreaterThan(g.upRight, 1.5 * g.downRight, "stripes should run down-right")
+    let img = try sim.render(palette: "mono", style: .flat)
+    XCTAssertGreaterThan(gradient(img, dx: 1, dy: -1), 1.5 * gradient(img, dx: 1, dy: 1), "stripes should run down-right")
   }
 
   func testFrameScheduleSumsToTotal() {
