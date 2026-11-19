@@ -9,9 +9,10 @@ let usage = """
     --size N             grid width and height (default 1024)
     --width W --height H grid size, if not square
     --steps N            simulation steps (default: the preset's)
-    --feed F --kill K    override the preset's feed and kill rates
+    --feed F --kill K    override feed and kill (Gray-Scott presets only)
     --palette NAME       color ramp (default: the preset's)
-    --style NAME         flat, emboss or glossy (default emboss)
+    --style NAME         flat, emboss, glossy, phase, contour, relief or species
+                         (default: the preset's)
     --zoom N             upsample the PNG N times (default 1)
     --seed N             random seed (default: random, printed)
     --out FILE.png       output image (default <preset>.png)
@@ -40,8 +41,9 @@ while let argument = arguments.popFirst() {
     exit(0)
   case "--list":
     for preset in Preset.all {
-      let rates = String(format: "f=%.4f k=%.4f", preset.feed, preset.kill)
-      print("\(preset.name.padding(toLength: 12, withPad: " ", startingAt: 0)) \(rates)  \(preset.summary)")
+      let name = preset.name.padding(toLength: 12, withPad: " ", startingAt: 0)
+      let model = preset.model.title.padding(toLength: 17, withPad: " ", startingAt: 0)
+      print("\(name) \(model) \(preset.summary)")
     }
     print("\npalettes: \(Palette.names.joined(separator: ", "))")
     print("styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))")
@@ -71,7 +73,7 @@ let palette = options["--palette"] ?? preset.palette
 guard Palette.names.contains(palette) else {
   fail("unknown palette '\(palette)'. Valid palettes: \(Palette.names.joined(separator: ", "))")
 }
-let styleName = options["--style"] ?? "emboss"
+let styleName = options["--style"] ?? preset.style.name
 guard let style = RenderStyle.named(styleName) else {
   fail("unknown style '\(styleName)'. Valid styles: \(RenderStyle.allCases.map(\.name).joined(separator: ", "))")
 }
@@ -80,6 +82,9 @@ let size = number("--size", default: 1024, in: 16...4096)
 let width = number("--width", default: size, in: 16...4096)
 let height = number("--height", default: size, in: 16...4096)
 let steps = number("--steps", default: preset.steps, in: 1...1_000_000)
+if preset.model != .grayScott && (options["--feed"] != nil || options["--kill"] != nil) {
+  fail("--feed and --kill only apply to Gray-Scott presets; \(preset.name) is \(preset.model.title)")
+}
 let feed = number("--feed", default: preset.feed, in: 0...0.12)
 let kill = number("--kill", default: preset.kill, in: 0...0.12)
 let zoom = number("--zoom", default: 1, in: 1...8)
@@ -93,8 +98,9 @@ if max(width, height) * zoom > 8192 { fail("--zoom makes the image larger than 8
 
 // MARK: - Run
 
-let banner = "preset=\(preset.name) size=\(width)x\(height) steps=\(steps) feed=\(feed) kill=\(kill) "
-  + "palette=\(palette) style=\(style.name) seed=\(seed)"
+let rates = preset.model == .grayScott ? "feed=\(feed) kill=\(kill) " : ""
+let banner = "preset=\(preset.name) model=\(preset.model.title) size=\(width)x\(height) steps=\(steps) "
+  + "\(rates)palette=\(palette) style=\(style.name) seed=\(seed)"
 print(banner)
 
 let start = Date()

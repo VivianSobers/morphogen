@@ -5,6 +5,21 @@ public enum Model: UInt32, CaseIterable {
   case grayScott = 0, barkley = 1, brusselator = 2, schnakenberg = 3
   case giererMeinhardt = 4, lengyelEpstein = 5, thomas = 6, swiftHohenberg = 7, mayLeonard = 8
 
+  /// Human-readable name, as used in the README and `--list`.
+  public var title: String {
+    switch self {
+    case .grayScott: return "Gray-Scott"
+    case .barkley: return "Barkley"
+    case .brusselator: return "Brusselator"
+    case .schnakenberg: return "Schnakenberg"
+    case .giererMeinhardt: return "Gierer-Meinhardt"
+    case .lengyelEpstein: return "Lengyel-Epstein"
+    case .thomas: return "Thomas"
+    case .swiftHohenberg: return "Swift-Hohenberg"
+    case .mayLeonard: return "May-Leonard"
+    }
+  }
+
   var kernel: String {
     switch self {
     case .grayScott: return "gray_scott_step"
@@ -47,11 +62,14 @@ public struct Preset: Equatable {
   public let du: Float
   public let dv: Float
   public let dt: Float
+  /// The style `morphogen` renders this preset with unless told otherwise.
+  public let style: RenderStyle
 
   public init(name: String, model: Model = .grayScott, feed: Float = 0, kill: Float = 0,
               feedEnd: Float? = nil, killEnd: Float? = nil, constants: [Float] = [],
               du: Float = 1, dv: Float = 0.5, dt: Float = 1,
-              seedShape: SeedShape, steps: Int, palette: String, summary: String, flowAngle: Float? = nil) {
+              seedShape: SeedShape, steps: Int, palette: String, summary: String, flowAngle: Float? = nil,
+              style: RenderStyle = .emboss) {
     precondition(constants.count <= 4, "kernels take at most four constants")
     self.name = name
     self.model = model
@@ -59,6 +77,7 @@ public struct Preset: Equatable {
     self.du = du
     self.dv = dv
     self.dt = dt
+    self.style = style
     self.feed = feed
     self.kill = kill
     self.feedEnd = feedEnd
@@ -88,19 +107,20 @@ public struct Preset: Equatable {
     Preset(name: "spirals", model: .barkley, constants: [0.75, 0.06, 0.02], du: 15, dt: 0.05,
            seedShape: .brokenWaves, steps: 20000, palette: "magma", summary: "rotating spiral waves in an excitable medium"),
     Preset(name: "dunes", model: .brusselator, constants: [3, 4.6], du: 12, dv: 96, dt: 0.01,
-           seedShape: .perturbed, steps: 80000, palette: "coral", summary: "Brusselator stripes, like ripples in sand"),
+           seedShape: .perturbed, steps: 80000, palette: "coral", summary: "stripes like ripples in sand"),
     Preset(name: "leopard", model: .schnakenberg, constants: [0.1, 0.9], du: 6, dv: 120, dt: 0.008,
-           seedShape: .perturbed, steps: 100000, palette: "magma", summary: "Schnakenberg spots packing into hexagons"),
+           seedShape: .perturbed, steps: 100000, palette: "magma", summary: "spots packing into hexagons"),
     Preset(name: "maze", model: .giererMeinhardt, constants: [1.5, 0.1, 0.02], du: 4, dv: 120, dt: 0.006,
-           seedShape: .perturbed, steps: 80000, palette: "ocean", summary: "Gierer-Meinhardt stripes from a saturating activator"),
+           seedShape: .perturbed, steps: 80000, palette: "ocean", summary: "stripes from a saturating activator"),
     Preset(name: "cima", model: .lengyelEpstein, constants: [12, 0.3], du: 1, dv: 30, dt: 0.02,
-           seedShape: .perturbed, steps: 30000, palette: "coral", summary: "Lengyel-Epstein, the first Turing pattern seen in a lab"),
+           seedShape: .perturbed, steps: 30000, palette: "coral", summary: "the first Turing pattern seen in a lab"),
     Preset(name: "honeycomb", model: .thomas, constants: [150, 100, 13, 0.05], du: 0.5, dv: 13.5, dt: 0.02,
-           seedShape: .perturbed, steps: 30000, palette: "mono", summary: "Thomas substrate inhibition: holes in a sheet"),
+           seedShape: .perturbed, steps: 30000, palette: "mono", summary: "substrate inhibition carves a honeycomb"),
     Preset(name: "benard", model: .swiftHohenberg, constants: [0.1, 1.0, 0.5], dt: 0.0015,
-           seedShape: .perturbed, steps: 100000, palette: "ember", summary: "Swift-Hohenberg convection cells"),
+           seedShape: .perturbed, steps: 100000, palette: "ember", summary: "convection cells, as in heated oil", style: .relief),
     Preset(name: "rps", model: .mayLeonard, constants: [1, 1], du: 2, dt: 0.1,
-           seedShape: .perturbed, steps: 20000, palette: "dusk", summary: "rock-paper-scissors species chasing in spirals"),
+           seedShape: .perturbed, steps: 20000, palette: "dusk", summary: "rock-paper-scissors species chasing in spirals",
+           style: .species),
   ]
 
   public static func named(_ name: String) -> Preset? { all.first { $0.name == name } }
